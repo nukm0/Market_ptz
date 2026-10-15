@@ -833,11 +833,8 @@ export default function Home() {
                 <div className="profile-action-cards">
                   <button className="profile-action-card" onClick={copyBotReferralLink}><span className="profile-action-icon"><Send size={19} /></span><span><b>Реферальная ссылка</b><small>Приглашено через бота: {referralCount} · нажмите, чтобы скопировать</small></span><ChevronRight size={17} /></button>
                   <button className="profile-action-card" onClick={openProfileSettings}><span className="profile-action-icon"><Settings2 size={19} /></span><span><b>Настройки профиля</b><small>Обложка, фон, цвет текста и описание</small></span><ChevronRight size={17} /></button>
-                  {serverAuthenticated && telegramUser?.id && <button className="profile-action-card" onClick={() => { setSellerProfileUsername(String(telegramUser.id)); setTab("Профиль продавца"); }}><span className="profile-action-icon"><Eye size={19}/></span><span><b>Посмотреть мой публичный профиль</b><small>Так ваше оформление видят другие пользователи</small></span><ChevronRight size={17}/></button>}
-                  {serverAuthenticated && telegramUser?.id && <button className="profile-action-card" onClick={async () => { const url = new URL(window.location.origin); url.searchParams.set("profile", String(telegramUser.id)); try { await navigator.clipboard.writeText(url.toString()); flash("Ссылка на публичный профиль скопирована."); } catch { flash("Ссылка на профиль: " + url.toString()); } }}><span className="profile-action-icon"><Send size={19}/></span><span><b>Поделиться профилем</b><small>Ссылка доступна всем посетителям</small></span><ChevronRight size={17}/></button>}
                 </div>
               </section>
-              <p className="temporary-stats-note">Статистика профиля</p>
               <div className="stats-grid profile-stats-grid">
                 <Stat icon={<Package />} label="Частные объявления" value={String(ads.filter(a => (a.seller === "you" || a.sellerTelegramId === telegramUser?.id) && a.listingGroup !== "магазина").length)} />
                 <Stat icon={<Eye />} label="Просмотры объявлений" value={ads.filter(a => (a.seller === "you" || a.sellerTelegramId === telegramUser?.id) && a.listingGroup !== "магазина").reduce((total, a) => total + a.views, 0).toLocaleString("ru-RU")} />
