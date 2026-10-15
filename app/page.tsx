@@ -77,8 +77,8 @@ export default function Home() {
   const [bannerDraft, setBannerDraft] = useState({title:"", sub:"", kicker:"MARKETPLACE · НОВОСТИ", color:"banner-purple", url:"", image:"", home:true, shops:false});
   const [customBanners, setCustomBanners] = useState<any[]>([]);
   const [shopDraft, setShopDraft] = useState({name:"", owner:"", description:"", logo:""});
-  const [managedShops, setManagedShops] = useState<{id?:string;name:string;owner:string;ownerTelegramId?:number;description?:string;logo?:string;createdAt?:string;views?:number;subscriberCount?:number;hidden?:boolean}[]>([]);
-  const [adminShopSelected, setAdminShopSelected] = useState<{id?:string;name:string;owner:string;ownerTelegramId?:number;description?:string;logo?:string;createdAt?:string;views?:number;subscriberCount?:number;hidden?:boolean}|null>(null);
+  const [managedShops, setManagedShops] = useState<{id?:string;name:string;owner:string;ownerTelegramId?:number;description?:string;logo?:string;logo_url?:string;theme_key?:string;createdAt?:string;views?:number;subscriberCount?:number;hidden?:boolean}[]>([]);
+  const [adminShopSelected, setAdminShopSelected] = useState<{id?:string;name:string;owner:string;ownerTelegramId?:number;description?:string;logo?:string;logo_url?:string;theme_key?:string;createdAt?:string;views?:number;subscriberCount?:number;hidden?:boolean}|null>(null);
   const [staffBadges, setStaffBadges] = useState<Record<string,string>>({});
   const [adminSearch, setAdminSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
