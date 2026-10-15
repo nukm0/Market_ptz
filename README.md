@@ -56,7 +56,7 @@ npm run dev
 curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   -d "url=${NEXT_PUBLIC_APP_URL}/api/telegram/bot" \
   -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
-  -d 'allowed_updates=["message"]'
+  -d 'allowed_updates=["message","callback_query"]'
 ```
 
 3. Проверьте в личном чате бота `/start`, `/ref`, `/shops`, `/subscriptions`, `/moderators`, `/stats` и `/complaint`. Персональные рефералы засчитываются при первом `/start` с параметром `?start=<Telegram ID>`; простое открытие сайта не считается.
@@ -76,4 +76,3 @@ curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
 Карточки новых публикаций формируются на `/api/telegram/card?ad=…`: название, цена, фото из хранилища. Скрытые объявления и магазины не получают публичных карточек. Меню бота также снабжено автоматически формируемыми картинками.
 
 Проверка сценариев: `pnpm test`. Сборка: `pnpm build`.
-
