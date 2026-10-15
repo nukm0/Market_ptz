@@ -43,6 +43,19 @@ export async function POST(request:NextRequest) {
     const startTarget=rawText.match(/^\/start(?:@\w+)?\s+(ad|shop|review|profile|page)_([A-Za-z0-9_-]+)$/i);
     const startMatch=rawText.match(/^\/start(?:@\w+)?(?:\s+([0-9]{1,20}))?/i);
     if(startMatch) {
+      // Older webhook installations subscribed only to messages, excluding inline buttons.
+      // Keep the existing endpoint and secret while adding callback delivery.
+      try {
+        const webhook=await callTelegram("getWebhookInfo",{});
+        if(webhook?.url && Array.isArray(webhook.allowed_updates) && webhook.allowed_updates.length>0 && !webhook.allowed_updates.includes("callback_query")) {
+          await callTelegram("setWebhook",{
+            url:webhook.url,
+            allowed_updates:Array.from(new Set([...webhook.allowed_updates,"message","callback_query"])),
+            ...(expected?{secret_token:expected}:{}),
+            ...(webhook.max_connections?{max_connections:webhook.max_connections}:{})
+          });
+        }
+      } catch { console.error("Telegram inline button subscription repair failed"); }
       const ref=Number(startMatch[1]||0);
       const existed=await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}&select=telegram_id,referred_by,bot_started_at&limit=1`).catch(()=>[]) as any[];
       const firstBotStart=!existed?.[0]?.bot_started_at;
