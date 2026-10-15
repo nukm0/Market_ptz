@@ -273,3 +273,6 @@ html[data-theme="light"] body{--bg:#f3f5fb;--surface:#ffffff;--text:#20263a;--mu
 .app-shell.profile-layout-theme-blue .profile-stats-grid .stat-card,.app-shell.profile-layout-theme-blue .profile-action-card,.app-shell.profile-layout-theme-blue .ad-card{border-color:rgba(59,130,246,.4)!important;box-shadow:0 12px 28px rgba(29,78,216,.12),0 0 18px rgba(34,211,238,.06)}
 .app-shell.profile-layout-theme-pink .profile-stats-grid .stat-card,.app-shell.profile-layout-theme-pink .profile-action-card,.app-shell.profile-layout-theme-pink .ad-card{border-color:rgba(236,72,153,.4)!important;box-shadow:0 12px 28px rgba(190,24,93,.12),0 0 18px rgba(232,121,249,.06)}
 .app-shell.theme-light.profile-layout-theme-blue .profile-stats-grid .stat-card,.app-shell.theme-light.profile-layout-theme-pink .profile-stats-grid .stat-card{background:linear-gradient(135deg,#fff,#f7f8ff)!important}
+
+/* Keep the page background visible between profile statistics cards. */
+.app-shell .stats-grid.profile-stats-grid{background:transparent!important;box-shadow:none}
