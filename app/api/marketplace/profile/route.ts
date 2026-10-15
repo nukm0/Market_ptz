@@ -4,8 +4,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
-    const session = await getVerifiedSession(request.headers.get("x-telegram-init-data") || "", { allowBanned: true });
-    const target = String(request.nextUrl.searchParams.get("target") || session.user.id).trim().replace(/^@/, "");
+    // Explicit profile targets expose only the public fields selected below.
+    // Viewing a profile must not depend on the visitor's Telegram session.
+    let target = String(request.nextUrl.searchParams.get("target") || "").trim().replace(/^@/, "");
+    if (!target) {
+      const session = await getVerifiedSession(request.headers.get("x-telegram-init-data") || "", { allowBanned: true });
+      target = String(session.user.id);
+    }
+    if (!/^\d{5,20}$/.test(target) && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(target)) {
+      return NextResponse.json({ error: "Некорректный Telegram ID или username." }, { status: 400 });
+    }
     let rows: any[];
     if (/^\d{5,20}$/.test(target)) {
       rows = await supabaseRequest(`marketplace_users?telegram_id=eq.${encodeURIComponent(target)}&select=telegram_id,username,first_name,photo_url,profile_description,profile_cover_url,profile_background_url,profile_text_color,profile_theme_key&limit=1`) as any[];
@@ -51,7 +59,10 @@ export async function POST(request: NextRequest) {
       if (url.length > 2000 || !/^https:\/\//i.test(url)) throw new Error("Изображения должны иметь HTTPS-ссылку.");
       return url;
     };
-    const themeKey = ["banner-purple", "banner-blue", "banner-pink"].includes(String(body?.themeKey)) ? String(body.themeKey) : "banner-purple";
+    if (body?.themeKey === "banner-gray" && !session.isOwner) {
+      return NextResponse.json({ error: "Серый градиент доступен только владельцу платформы." }, { status: 403 });
+    }
+    const themeKey = ["banner-purple", "banner-blue", "banner-pink", ...(session.isOwner ? ["banner-gray"] : [])].includes(String(body?.themeKey)) ? String(body.themeKey) : "banner-purple";
     const textColor = body?.textColor === "#000000" ? "#000000" : "#ffffff";
     const patch = {
       profile_description: description,

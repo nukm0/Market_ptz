@@ -276,3 +276,19 @@ html[data-theme="light"] body{--bg:#f3f5fb;--surface:#ffffff;--text:#20263a;--mu
 
 /* Keep the page background visible between profile statistics cards. */
 .app-shell .stats-grid.profile-stats-grid{background:transparent!important;box-shadow:none}
+
+/* The public profile carries its owner-selected styling through all sections. */
+.public-profile-view{padding:16px}
+.public-profile-view .profile-stats-grid{background:transparent!important;box-shadow:none}
+.public-profile-view.profile-text-black>.page-title h1,.public-profile-view.profile-text-black>.page-title p,.public-profile-view.profile-text-black>.section-heading h2{color:#161827!important}
+.public-profile-view.profile-text-white>.page-title h1,.public-profile-view.profile-text-white>.page-title p,.public-profile-view.profile-text-white>.section-heading h2{color:#fff!important}
+
+/* Exclusive platform-owner theme, also visible on the owner's public profile. */
+.theme-swatch-gray>span{background:linear-gradient(135deg,#374151,#9ca3af,#e5e7eb)}
+.app-shell.profile-layout-theme-gray .profile-banner:not(.has-profile-cover){background:linear-gradient(125deg,#30343b,#68707c 58%,#aeb4be)!important}
+.app-shell.profile-layout-theme-gray .stat-card,.app-shell.profile-layout-theme-gray .profile-action-card,.app-shell.profile-layout-theme-gray .ad-card{border-color:rgba(156,163,175,.65)!important;box-shadow:0 8px 24px rgba(107,114,128,.15)}
+.app-shell.profile-layout-theme-gray .profile-action-icon{background:linear-gradient(135deg,#4b5563,#9ca3af)}
+.app-shell .stats-grid.profile-stats-grid{background:transparent!important;box-shadow:none}
+.public-profile-view.profile-text-black .profile-banner:not(.has-profile-cover){background:linear-gradient(135deg,#f3f4f6,#d1d5db)!important}
+.public-profile-view.profile-text-white .profile-banner:not(.has-profile-cover){background:linear-gradient(135deg,#17141f,#21182b)!important}
+.app-shell.profile-layout-theme-gray .public-profile-view .profile-banner:not(.has-profile-cover){background:linear-gradient(125deg,#30343b,#68707c 58%,#aeb4be)!important}
