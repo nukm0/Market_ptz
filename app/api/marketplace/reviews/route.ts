@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { telegramMiniAppLink, miniAppWebUrl } from "../../../../lib/telegram-links";
 import { getVerifiedSession, sendTelegramMessage, supabaseRequest } from "../../../../lib/telegram-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const initData = request.headers.get("x-telegram-init-data") || "";
-    const session = await getVerifiedSession(initData);
+    const session = initData ? await getVerifiedSession(initData) : null;
     const reviewId = request.nextUrl.searchParams.get("review");
     if (reviewId) {
       const found = await supabaseRequest(`marketplace_reviews?id=eq.${encodeURIComponent(reviewId)}&select=*&limit=1`) as any[];
       const review = found?.[0];
       if (!review) return NextResponse.json({error:"Отзыв не найден."},{status:404});
+      if (review.status !== "approved") return NextResponse.json({error:"Отзыв недоступен."},{status:404});
+      if (!session) return NextResponse.json({error:"Откройте Mini App через Telegram."},{status:401});
       let allowed = Number(review.author_telegram_id) === session.user.id || Number(review.target_telegram_id) === session.user.id || session.user.id === 998579758;
       let shop: any = null;
       if (review.target_type === "shop" && review.target_shop_id) {
@@ -27,15 +30,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({review,targetUsername,shop},{headers:{"Cache-Control":"no-store"}});
     }
     const type = request.nextUrl.searchParams.get("type") === "shop" ? "shop" : "profile";
-    let target = request.nextUrl.searchParams.get("target") || String(session.user.id);
+    let target = request.nextUrl.searchParams.get("target") || String(session?.user.id || "0");
     if (type === "profile" && !/^\d+$/.test(target)) {
       const username = target.replace(/^@/, "").trim();
       const matched = await supabaseRequest(`marketplace_users?username=ilike.${encodeURIComponent(username)}&select=telegram_id&limit=1`) as any[];
       target = String(matched?.[0]?.telegram_id || "0");
     }
+    if (type === "profile" && target === "998579758") return NextResponse.json({reviews:[],rating:5,canReview:false});
     const rows = type === "shop"
-      ? await supabaseRequest(`marketplace_reviews?target_type=eq.shop&target_shop_id=eq.${encodeURIComponent(target)}&status=in.(approved,disputed)&select=*&order=created_at.desc&limit=100`)
-      : await supabaseRequest(`marketplace_reviews?target_type=eq.profile&target_telegram_id=eq.${encodeURIComponent(target)}&status=in.(approved,disputed)&select=*&order=created_at.desc&limit=100`);
+      ? await supabaseRequest(`marketplace_reviews?target_type=eq.shop&target_shop_id=eq.${encodeURIComponent(target)}&status=eq.approved&select=*&order=created_at.desc&limit=100`)
+      : await supabaseRequest(`marketplace_reviews?target_type=eq.profile&target_telegram_id=eq.${encodeURIComponent(target)}&status=eq.approved&select=*&order=created_at.desc&limit=100`);
     const authorIds = Array.from(new Set((rows || []).map((review:any)=>String(review.author_telegram_id)).filter((id:string)=>/^\d+$/.test(id))));
     const authorRows = authorIds.length
       ? await supabaseRequest(`marketplace_users?telegram_id=in.(${authorIds.join(",")})&select=telegram_id,username,first_name&limit=500`).catch(()=>[]) as any[]
@@ -66,6 +70,7 @@ export async function POST(request: NextRequest) {
       data.target_telegram_id=targetId;
     }
     if ((type === "shop" && !data.target_shop_id) || (type === "profile" && (!Number.isSafeInteger(data.target_telegram_id) || data.target_telegram_id <= 0))) return NextResponse.json({error:"Получатель не найден. Пользователь должен хотя бы раз открыть площадку через Telegram."},{status:400});
+    if (type === "profile" && data.target_telegram_id === 998579758) return NextResponse.json({error:"Владельцу платформы нельзя оставлять отзывы."},{status:403});
     if (type === "profile" && data.target_telegram_id === session.user.id) return NextResponse.json({error:"Нельзя оставить отзыв самому себе."},{status:400});
     const result = await supabaseRequest("marketplace_reviews",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify(data)});
     const review = Array.isArray(result) ? result[0] : result as any;
@@ -75,14 +80,14 @@ export async function POST(request: NextRequest) {
       recipientId = Number(shopRows?.[0]?.owner_telegram_id || 0);
     }
     if (recipientId > 0 && recipientId !== session.user.id) {
-      const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "").replace(/\/$/, "");
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "https://market-ptz.vercel.app").replace(/\/$/, "");
       const message = `На ваш ${type === "shop" ? "магазин" : "аккаунт"} оставили отзыв: ${stars}★.
 
 Описание: ${description}${appUrl && review?.id ? `
 
-Открыть и оспорить: ${appUrl}/?review=${encodeURIComponent(String(review.id))}` : ""}`;
-      await supabaseRequest("marketplace_notifications", {method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:recipientId,title:`Новый отзыв · ${stars}★`,message,read:false,action_url:appUrl && review?.id ? `${appUrl}/?review=${encodeURIComponent(String(review.id))}` : null})}).catch(()=>null);
-      await sendTelegramMessage(recipientId, message, appUrl && review?.id ? [[{text:"Открыть отзыв / оспорить",url:`${appUrl}/?review=${encodeURIComponent(String(review.id))}`}]] : undefined).catch(()=>false);
+Открыть в Telegram: ${telegramMiniAppLink("review",String(review.id))}` : ""}`;
+      await supabaseRequest("marketplace_notifications", {method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:recipientId,title:`Новый отзыв · ${stars}★`,message,read:false,action_url:appUrl && review?.id ? telegramMiniAppLink("review",String(review.id)) : null})}).catch(()=>null);
+      await sendTelegramMessage(recipientId, message, appUrl && review?.id ? [[{text:"Открыть отзыв / оспорить",url:miniAppWebUrl("review",String(review.id))}]] : undefined).catch(()=>false);
     }
     return NextResponse.json({ok:true,review},{status:201});
   } catch (error) { const message = error instanceof Error ? error.message : "Request failed"; return NextResponse.json({error:message.includes("not configured")?"Серверная база не настроена.":"Не удалось отправить отзыв."},{status:message.includes("not configured")?503:400}); }

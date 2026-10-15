@@ -20,6 +20,8 @@ export async function POST(request: NextRequest) {
     const owner = actorId === OWNER_ID;
     const leadership = owner || session.role === "Заместитель владельца";
     const admin = mayManage(session.role);
+    const moderator = admin || session.role === "Модератор";
+    const staff = moderator || session.role === "Стажёр";
     let result: unknown = null;
 
     if (action === "delete_own_listing") {
@@ -91,17 +93,10 @@ export async function POST(request: NextRequest) {
       if (occupied?.length) return NextResponse.json({error:"У этого пользователя уже есть другой магазин."},{status:409});
       const existingShop = await supabaseRequest(`marketplace_shops?id=eq.${encodeURIComponent(shopId)}&select=id,owner_telegram_id,name&limit=1`) as any[];
       if (!existingShop?.length) return NextResponse.json({error:"Магазин не найден."},{status:404});
-      const oldOwner = Number(existingShop[0].owner_telegram_id);
-      let nextOwnerUsername = "";
-      const newOwnerRows = await supabaseRequest(`marketplace_users?telegram_id=eq.${nextOwner}&select=username&limit=1`).catch(()=>[]) as any[];
-      nextOwnerUsername = String(newOwnerRows?.[0]?.username || "");
-      result = await supabaseRequest(`marketplace_shops?id=eq.${encodeURIComponent(shopId)}`, {method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({name,description,logo_url:logoUrl,owner_telegram_id:nextOwner})});
-      if (oldOwner !== nextOwner) {
-        // A transfer changes the authoritative seller on every listing belonging to this shop.
-        await supabaseRequest(`marketplace_listings?shop_id=eq.${encodeURIComponent(shopId)}`, { method:"PATCH", headers:{Prefer:"return=minimal"}, body:JSON.stringify({seller_telegram_id:nextOwner,seller_username:nextOwnerUsername || String(nextOwner)}) });
-      }
+      if (logoUrl && !/^https:\/\//i.test(logoUrl)) return NextResponse.json({error:"Логотип должен быть HTTPS-ссылкой."},{status:400});
+      result = await supabaseRequest("rpc/marketplace_transfer_shop", {method:"POST",body:JSON.stringify({p_shop_id:shopId,p_name:name,p_description:description,p_logo_url:logoUrl,p_owner_id:nextOwner,p_actor_id:actorId})});
     } else if (action === "list_reviews") {
-      if (!admin) return NextResponse.json({error:"Недостаточно прав для просмотра отзывов."},{status:403});
+      if (!staff) return NextResponse.json({error:"Недостаточно прав для просмотра отзывов."},{status:403});
       const reviews = await supabaseRequest("marketplace_reviews?select=*&order=created_at.desc&limit=500") as any[];
       const userIds = Array.from(new Set((reviews || []).flatMap((r:any)=>[r.author_telegram_id,r.target_telegram_id]).filter((id:any)=>id!==null&&id!==undefined&&Number(id)>0).map((id:any)=>String(Number(id)))));
       const shopIds = Array.from(new Set((reviews || []).map((r:any)=>r.target_shop_id).filter(Boolean).map(String)));
@@ -111,7 +106,7 @@ export async function POST(request: NextRequest) {
       ]);
       const usersById = new Map((users || []).map((u:any)=>[String(u.telegram_id),u]));
       const shopsById = new Map((shops || []).map((shop:any)=>[String(shop.id),shop]));
-      result = (reviews || []).map((review:any) => {
+      result = (reviews || []).filter((review:any)=>!(review.target_type==="profile"&&Number(review.target_telegram_id)===OWNER_ID)).map((review:any) => {
         const author:any = usersById.get(String(review.author_telegram_id)) || {};
         const target:any = usersById.get(String(review.target_telegram_id)) || {};
         const shop:any = shopsById.get(String(review.target_shop_id)) || {};
@@ -130,11 +125,13 @@ export async function POST(request: NextRequest) {
         };
       });
     } else if (action === "review_decision") {
-      if (!admin) return NextResponse.json({error:"Недостаточно прав для модерации отзывов."},{status:403});
+      if (!moderator) return NextResponse.json({error:"Недостаточно прав для модерации отзывов."},{status:403});
       const reviewId = String(payload.id || "");
       const decision = String(payload.decision || "");
       const statuses:Record<string,string> = {approve:"approved",reject:"rejected",hide:"hidden"};
       if (!reviewId || !statuses[decision]) return NextResponse.json({error:"Недопустимое решение по отзыву."},{status:400});
+      const targetReviews = await supabaseRequest(`marketplace_reviews?id=eq.${encodeURIComponent(reviewId)}&select=target_type,target_telegram_id&limit=1`) as any[];
+      if (targetReviews?.[0]?.target_type === "profile" && Number(targetReviews[0].target_telegram_id) === OWNER_ID) return NextResponse.json({error:"Отзывы владельцу платформы недоступны."},{status:400});
       result = await supabaseRequest(`marketplace_reviews?id=eq.${encodeURIComponent(reviewId)}`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({status:statuses[decision],moderator_comment:String(payload.comment||"").slice(0,1000),reviewed_by:actorId,reviewed_at:new Date().toISOString()})});
       const review = Array.isArray(result) ? result[0] : null;
       if (review?.author_telegram_id) {
@@ -179,30 +176,7 @@ export async function POST(request: NextRequest) {
         const shops = await supabaseRequest(`marketplace_shops?id=eq.${encodeURIComponent(shopId)}&select=id,name&limit=1`) as any[];
         const shop = shops?.[0];
         if (!shop) return NextResponse.json({ error: "Магазин не найден." }, { status: 404 });
-        const deletedAt = new Date().toISOString();
-        const followers = await supabaseRequest(`marketplace_shop_subscriptions?shop_id=eq.${encodeURIComponent(shopId)}&select=telegram_id&limit=10000`).catch(()=>[]) as any[];
-        if (followers?.length) {
-          const archiveRows = followers.map((f:any)=>({shop_id:shopId,telegram_id:Number(f.telegram_id),shop_name:String(shop.name),deleted_at:deletedAt}));
-          await supabaseRequest("marketplace_deleted_shop_subscriptions?on_conflict=shop_id,telegram_id", { method:"POST", headers:{Prefer:"resolution=merge-duplicates,return=minimal"}, body:JSON.stringify(archiveRows) });
-        }
-        const listingRows = await supabaseRequest(`marketplace_listings?shop_id=eq.${encodeURIComponent(shopId)}&select=listing_id`, { method:"GET" }) as any[];
-        const listingIds = (listingRows||[]).map((r:any)=>String(r.listing_id)).filter((id:string)=>/^\d{1,20}$/.test(id));
-        const cleanup: Promise<any>[] = [
-          supabaseRequest(`marketplace_listings?shop_id=eq.${encodeURIComponent(shopId)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}),
-          supabaseRequest(`marketplace_reviews?target_shop_id=eq.${encodeURIComponent(shopId)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}).catch(()=>null),
-          supabaseRequest(`marketplace_shop_views?shop_id=eq.${encodeURIComponent(shopId)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}).catch(()=>null),
-          supabaseRequest(`marketplace_listing_moderation?object_type=eq.shop&object_id=eq.${encodeURIComponent(shopId)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}).catch(()=>null),
-          supabaseRequest(`marketplace_reports?object_type=eq.shop&object_id=eq.${encodeURIComponent(shopId)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}).catch(()=>null),
-          supabaseRequest(`marketplace_shop_subscriptions?shop_id=eq.${encodeURIComponent(shopId)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}),
-        ];
-        if (listingIds.length) {
-          const inFilter = `in.(${listingIds.map(id=>`\"${id}\"`).join(",")})`;
-          cleanup.push(supabaseRequest(`marketplace_listing_views?listing_id=${encodeURIComponent(inFilter)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}).catch(()=>null));
-          cleanup.push(supabaseRequest(`marketplace_listing_moderation?object_type=eq.listing&object_id=${encodeURIComponent(inFilter)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}).catch(()=>null));
-          cleanup.push(supabaseRequest(`marketplace_reports?object_type=eq.listing&object_id=${encodeURIComponent(inFilter)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}).catch(()=>null));
-        }
-        await Promise.all(cleanup);
-        result = await supabaseRequest(`marketplace_shops?id=eq.${encodeURIComponent(shopId)}`, { method:"DELETE", headers:{Prefer:"return=representation"} });
+        result = await supabaseRequest("rpc/marketplace_delete_shop", {method:"POST",body:JSON.stringify({p_shop_id:shopId,p_actor_id:actorId})});
       } else {
         result = await supabaseRequest(`marketplace_shops?id=eq.${encodeURIComponent(shopId)}`, { method:"PATCH", headers:{Prefer:"return=representation"}, body:JSON.stringify({hidden:!!payload.hidden}) });
       }
@@ -212,7 +186,7 @@ export async function POST(request: NextRequest) {
       const question = String(entry.question ?? "").trim();
       const answer = String(entry.answer ?? "").trim();
       if (!question || !answer) return NextResponse.json({ error: "Заполните вопрос и ответ." }, { status: 400 });
-      const faqBody = { section: String(entry.section ?? "Как пользоваться"), heading: String(entry.heading ?? "").trim(), parent_heading: String(entry.parent ?? "").trim(), question, answer, created_by: actorId };
+      const faqBody = { section: String(entry.section ?? "Как пользоваться"), heading: String(entry.heading ?? "").trim(), parent_heading: String(entry.parent ?? "").trim(), question, answer, visible_roles: Array.isArray(entry.visibleRoles) && entry.visibleRoles.length ? entry.visibleRoles.filter((role:string)=>["all","Участник","Магазин","Стажёр","Модератор","Администратор","Заместитель владельца","Владелец"].includes(role)) : ["all"], created_by: actorId };
       result = entry.id
         ? await supabaseRequest(`marketplace_faq_entries?id=eq.${encodeURIComponent(String(entry.id))}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(faqBody) })
         : await supabaseRequest("marketplace_faq_entries", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(faqBody) });
@@ -249,14 +223,12 @@ export async function POST(request: NextRequest) {
       ]);
       if (!Array.isArray(rows) || rows.length === 0) return NextResponse.json({ error: "Объявление уже удалено или не найдено в серверной базе." }, { status: 404 });
       result = { listingId, title: rows[0].title || "" };
-    } else if (action === "hide_from_admin_queue") {
-      if (!admin) return NextResponse.json({ error: "Недостаточно прав." }, { status: 403 });
-      const objectType = String(payload.objectType ?? "listing").slice(0, 40);
-      const objectId = String(payload.objectId ?? "").slice(0, 100);
-      if (!objectId) return NextResponse.json({ error: "Не указан объект." }, { status: 400 });
-      const existing = await supabaseRequest(`marketplace_listing_moderation?object_type=eq.${encodeURIComponent(objectType)}&object_id=eq.${encodeURIComponent(objectId)}&select=public_hidden,admin_queue_hidden&limit=1`) as any[];
-      const current = existing?.[0] || {};
-      result = await supabaseRequest("marketplace_listing_moderation?on_conflict=object_type,object_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify({ object_type: objectType, object_id: objectId, public_hidden: !!current.public_hidden, admin_queue_hidden: payload.hidden !== false, reason: String(payload.reason ?? "Проверено администрацией"), updated_by: actorId, updated_at: new Date().toISOString() }) });
+    } else if (action === "hide_from_admin_queue" || action === "mark_listing_reviewed") {
+      if (!moderator) return NextResponse.json({ error: "Недостаточно прав." }, { status: 403 });
+      const objectId = String(payload.objectId || payload.listingId || "");
+      if (!/^\d{1,20}$/.test(objectId)) return NextResponse.json({error:"Некорректный ID объявления."},{status:400});
+      const existing = await supabaseRequest(`marketplace_listing_moderation?object_type=eq.listing&object_id=eq.${encodeURIComponent(objectId)}&select=public_hidden&limit=1`) as any[];
+      result = await supabaseRequest("marketplace_listing_moderation?on_conflict=object_type,object_id", {method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=representation"},body:JSON.stringify({object_type:"listing",object_id:objectId,public_hidden:!!existing?.[0]?.public_hidden,admin_queue_hidden:false,reviewed_by:actorId,reviewed_username:session.user.username||null,reviewed_name:[session.user.first_name,session.user.last_name].filter(Boolean).join(" "),reviewed_at:new Date().toISOString(),updated_by:actorId,updated_at:new Date().toISOString()})});
     } else if (action === "submit_report") {
       const reason = String(payload.reason ?? "").trim();
       const details = String(payload.details ?? "").trim();
@@ -276,14 +248,20 @@ export async function POST(request: NextRequest) {
         await supabaseRequest("marketplace_listing_moderation?on_conflict=object_type,object_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ object_type: objectType, object_id: objectId, public_hidden: true, admin_queue_hidden: !!existing?.[0]?.admin_queue_hidden, reason: "Жалоба на мошенничество ожидает проверки", updated_by: actorId, updated_at: new Date().toISOString() }) });
       }
     } else if (action === "claim_report") {
-      if (!admin) return NextResponse.json({ error: "Недостаточно прав." }, { status: 403 });
+      if (!moderator) return NextResponse.json({ error: "Недостаточно прав." }, { status: 403 });
       const reportId = String(payload.reportId ?? "");
-      const rows = await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(reportId)}&reviewer_telegram_id=is.null&status=in.(new,hidden_pending)&select=id`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "in_progress", reviewer_telegram_id: actorId, reviewer_username: session.user.username ?? null }) }) as any[];
+      const rows = await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(reportId)}&reviewer_telegram_id=is.null&status=in.(new,hidden_pending)&select=*`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "in_progress", reviewer_telegram_id: actorId, reviewer_username: session.user.username ?? null }) }) as any[];
       if (!rows?.length) return NextResponse.json({ error: "Жалобу уже взял другой сотрудник либо она закрыта." }, { status: 409 });
       result = rows[0];
     } else if (action === "report_recommendation") {
-      if (!admin) return NextResponse.json({ error: "Недостаточно прав." }, { status: 403 });
+      if (!moderator) return NextResponse.json({ error: "Недостаточно прав." }, { status: 403 });
       result = await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(String(payload.reportId ?? ""))}&reviewer_telegram_id=eq.${actorId}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ review_comment: String(payload.comment ?? ""), recommended_action: String(payload.recommendedAction ?? "none"), recommended_duration_minutes: Number(payload.durationMinutes) || null, status: "awaiting_owner" }) });
+      if (!Array.isArray(result) || !result.length) return NextResponse.json({error:"Жалоба не закреплена за вами или уже передана."},{status:409});
+    } else if (action === "reopen_report") {
+      if (!leadership) return NextResponse.json({error:"Недостаточно прав."},{status:403});
+      const previous = await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(String(payload.reportId||""))}&select=status,owner_telegram_id&limit=1`) as any[];
+      if(!owner&&previous?.[0]?.status==="resolved"&&Number(previous[0].owner_telegram_id)===OWNER_ID)return NextResponse.json({error:"Заместитель не может отменить решение владельца."},{status:403});
+      result = await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(String(payload.reportId||""))}`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({status:"new",reviewer_telegram_id:null,reviewer_username:null,owner_comment:String(payload.comment||""),resolved_at:null})});
     } else if (action === "owner_decision") {
       if (!leadership) return NextResponse.json({ error: "Окончательное решение принимает владелец или заместитель." }, { status: 403 });
       const decision = String(payload.decision ?? "no_action");
@@ -323,7 +301,7 @@ export async function POST(request: NextRequest) {
       result = await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(String(payload.reportId ?? ""))}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "resolved", owner_decision: decision, owner_comment: String(payload.comment ?? ""), owner_telegram_id: actorId, ...(Number.isSafeInteger(targetId) && targetId > 0 ? { object_owner_telegram_id: targetId } : {}), resolved_at: new Date().toISOString() }) });
       const finalizedReport = Array.isArray(result) ? result[0] : null;
       if (finalizedReport?.reporter_telegram_id) {
-        const reportText = decision === "dismiss" ? "Ваша жалоба была рассмотрена. Нарушение не подтвердилось по доступным материалам. Спасибо за содействие!" : "Ваша жалоба была рассмотрена, спасибо за содействие! Нарушитель был наказан!";
+        const reportText = ["dismiss","no_action"].includes(decision) ? "Ваша жалоба была рассмотрена. Нарушение не подтвердилось по доступным материалам. Спасибо за содействие!" : "Ваша жалоба была рассмотрена, спасибо за содействие! Нарушитель был наказан!";
         await supabaseRequest("marketplace_notifications",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:Number(finalizedReport.reporter_telegram_id),title:"Жалоба рассмотрена",message:reportText,read:false})}).catch(()=>{});
         await sendTelegramMessage(Number(finalizedReport.reporter_telegram_id),reportText).catch(()=>false);
       }
@@ -381,6 +359,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Request failed";
     const missingConfig = message.includes("not configured") || message.includes("must be configured");
+    console.error("Admin action failed", message.replace(/https?:\/\/[^\s]+/g,"[url]"));
     const banned = message.includes("Account is banned");
     return NextResponse.json({ error: missingConfig ? "Серверная база не подключена." : banned ? "Аккаунт заблокирован." : "Не удалось выполнить действие." }, { status: missingConfig ? 503 : banned ? 403 : 400, headers: { "Cache-Control": "no-store" } });
   }

@@ -1,4 +1,7 @@
+import { supabaseConfig, supabaseRequest } from "./supabase";
+export { supabaseConfig, supabaseRequest } from "./supabase";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { APP_URL, miniAppWebUrl } from "./telegram-links";
 
 export type TelegramUser = {
   id: number;
@@ -39,13 +42,6 @@ export function verifyTelegramInitData(initData: string) {
   return user;
 }
 
-export function supabaseConfig() {
-  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL)?.replace(/\/$/, "");
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY must be configured");
-  return { url, key };
-}
-
 export async function sendTelegramMessage(telegramId: number, message: string, inlineKeyboard?: Array<Array<{text:string;url:string}>>) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !Number.isSafeInteger(telegramId) || telegramId <= 0) return false;
@@ -53,7 +49,7 @@ export async function sendTelegramMessage(telegramId: number, message: string, i
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: telegramId, text: message, disable_web_page_preview: true, ...(inlineKeyboard?.length ? { reply_markup: { inline_keyboard: inlineKeyboard } } : {}) }),
+      body: JSON.stringify({ chat_id: telegramId, text: message, disable_web_page_preview: true, ...(inlineKeyboard?.length ? { reply_markup: { inline_keyboard: inlineKeyboard.map(row=>row.map(button=>{try{const url=new URL(button.url);return url.origin===APP_URL?{text:button.text,web_app:{url:button.url}}:button;}catch{return button;}})) } } : {}) }),
       cache: "no-store",
     });
     return response.ok;
@@ -62,25 +58,12 @@ export async function sendTelegramMessage(telegramId: number, message: string, i
   }
 }
 
-export async function supabaseRequest(path: string, init: RequestInit = {}) {
-  const { url, key } = supabaseConfig();
-  const response = await fetch(`${url}/rest/v1/${path}`, {
-    ...init,
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-      ...init.headers,
-    },
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Database request failed (${response.status}): ${body.slice(0, 300)}`);
-  }
-  if (response.status === 204) return null;
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
+export async function sendTelegramPost(telegramId:number, message:string, listingId:string) {
+  const token=process.env.TELEGRAM_BOT_TOKEN;
+  if(!token)return false;
+  const response=await fetch(`https://api.telegram.org/bot${token}/sendPhoto`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:telegramId,photo:`${APP_URL}/api/telegram/card?ad=${encodeURIComponent(listingId)}`,caption:message.slice(0,1000),reply_markup:{inline_keyboard:[[{text:"Открыть объявление в Telegram",web_app:{url:miniAppWebUrl("ad",listingId)}}]]}}),cache:"no-store"});
+  if(response.ok)return true;
+  return sendTelegramMessage(telegramId,message,[[{text:"Открыть объявление в Telegram",url:miniAppWebUrl("ad",listingId)}]]);
 }
 
 export async function getVerifiedSession(initData: string, options: { allowBanned?: boolean } = {}) {
@@ -121,7 +104,7 @@ export async function getVerifiedSession(initData: string, options: { allowBanne
     user.id === 998579758
       ? Promise.resolve([] as Array<{ role: string }>)
       : supabaseRequest(`marketplace_staff_roles?telegram_id=eq.${id}&select=role&limit=1`) as Promise<Array<{ role: string }>>,
-    supabaseRequest(`marketplace_shops?owner_telegram_id=eq.${id}&select=id,name,description,logo_url,cover_url,created_at,owner_telegram_id,theme_key,listing_theme_key,logo_text_color,background_url&limit=1`) as Promise<any[]>,
+    supabaseRequest(`marketplace_shops?owner_telegram_id=eq.${id}&select=id,name,description,logo_url,cover_url,created_at,owner_telegram_id,hidden,theme_key,listing_theme_key,logo_text_color,background_url&limit=1`) as Promise<any[]>,
     supabaseRequest(`marketplace_bans?telegram_id=eq.${id}&active=eq.true&select=reason,permanent,expires_at,created_at&order=created_at.desc&limit=5`) as Promise<any[]>,
     supabaseRequest(`marketplace_users?telegram_id=eq.${id}&select=verified,verified_full_name,verified_nickname,profile_description,profile_cover_url,profile_background_url,profile_text_color,profile_theme_key&limit=1`) as Promise<any[]>,
     loadCount(`marketplace_profile_subscription_counts?target_telegram_id=eq.${id}&select=subscriber_count&limit=1`, `marketplace_profile_subscriptions?target_telegram_id=eq.${id}&select=subscriber_telegram_id&limit=10000`),

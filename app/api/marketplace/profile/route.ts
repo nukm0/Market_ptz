@@ -35,11 +35,13 @@ export async function GET(request: NextRequest) {
     ]);
     const subscriberCount = Number(subscriberRows?.[0]?.subscriber_count || 0);
     const viewCount = Number(viewRows?.[0]?.view_count || 0);
+    const ratingRows = id === 998579758 ? [] : await supabaseRequest(`marketplace_reviews?target_type=eq.profile&target_telegram_id=eq.${id}&status=eq.approved&select=stars`) as any[];
+    const rating = id === 998579758 ? 5 : ratingRows.length ? ratingRows.reduce((sum:number,r:any)=>sum+Number(r.stars),0)/ratingRows.length : 0;
     return NextResponse.json({ profile: {
       telegramId: id, username: profile.username || "", firstName: profile.first_name || "", photoUrl: profile.photo_url || "",
       description: profile.profile_description || "", coverUrl: profile.profile_cover_url || "", backgroundUrl: profile.profile_background_url || "",
       textColor: profile.profile_text_color || "#ffffff", themeKey: profile.profile_theme_key || "banner-purple",
-      subscriberCount, views: viewCount,
+      subscriberCount, views: viewCount, rating, reviewCount:ratingRows.length, canReview:id !== 998579758,
     } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Request failed";

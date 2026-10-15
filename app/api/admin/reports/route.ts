@@ -27,6 +27,8 @@ export async function GET(request: NextRequest) {
       reporter: `Telegram ID ${r.reporter_telegram_id}`,
       reporterId: Number(r.reporter_telegram_id),
       ownerTelegramId: r.object_owner_telegram_id ? Number(r.object_owner_telegram_id) : undefined,
+      reviewerId: r.reviewer_telegram_id ? Number(r.reviewer_telegram_id) : null,
+      reviewerUsername: r.reviewer_username || "",
       reviewer: r.reviewer_telegram_id ? `ID ${r.reviewer_telegram_id}${r.reviewer_username ? ` · @${r.reviewer_username}` : ""}` : undefined,
       objectType: r.object_type,
       recommendedAction: r.recommended_action,

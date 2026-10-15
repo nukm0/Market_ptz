@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVerifiedSession, sendTelegramMessage, supabaseRequest } from "../../../../lib/telegram-auth";
+import { telegramMiniAppLink } from "../../../../lib/telegram-links";
+import { getVerifiedSession, sendTelegramPost, supabaseRequest } from "../../../../lib/telegram-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
     }
     const row={listing_id:listingId,seller_telegram_id:session.user.id,seller_username:username,shop_id:shopId,title,category,subcategory,price,description,photo_urls:photoUrls,listing_type:listingType,listing_group:listingGroup,hidden:false,created_at:new Date().toISOString()};
     await supabaseRequest("marketplace_listings?on_conflict=listing_id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
+    if(shopId && session.shop?.hidden)return NextResponse.json({ok:true,notified:0},{headers:{"Cache-Control":"no-store"}});
     const targets:any[]=[];
     if(shopId) {
       const subscribers=await supabaseRequest(`marketplace_shop_subscriptions?shop_id=eq.${encodeURIComponent(shopId)}&select=telegram_id`) as any[];
@@ -34,11 +36,11 @@ export async function POST(request: NextRequest) {
       for(const s of subscribers||[]) if(Number(s.subscriber_telegram_id)!==session.user.id) targets.push(Number(s.subscriber_telegram_id));
     }
     const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||"").replace(/\/$/,"");
-    const deepLink=appUrl?`${appUrl}/?ad=${encodeURIComponent(listingId)}`:"";
+    const deepLink=telegramMiniAppLink("ad",listingId);
     const message=`Новая публикация${listingGroup==="магазина"?" в магазине":" от пользователя"}${username?` @${username}`:""}: «${title}».${price?` Цена: ${price.toLocaleString("ru-RU")} ₽`:""}${deepLink?`\n${deepLink}`:""}`;
     await Promise.all(targets.map(async(id:number)=>{
       await supabaseRequest("marketplace_notifications",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:id,title:"Новая публикация по подписке",message,read:false,action_url:deepLink||null})}).catch(()=>null);
-      await sendTelegramMessage(id,message,deepLink?[[{text:"Открыть объявление",url:deepLink}]]:undefined).catch(()=>false);
+      await sendTelegramPost(id,message,listingId).catch(()=>false);
     }));
     return NextResponse.json({ok:true,notified:targets.length},{headers:{"Cache-Control":"no-store"}});
   } catch(error) {

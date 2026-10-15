@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { APP_URL, BOT_USERNAME, GROUP_URL, miniAppWebUrl } from "../../../../lib/telegram-links";
 import { sendTelegramMessage, supabaseRequest } from "../../../../lib/telegram-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,45 +10,61 @@ async function callTelegram(method:string, payload:Record<string,unknown>) {
   const response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),cache:"no-store"});
   const data=await response.json(); if(!response.ok || !data?.ok) throw new Error(data?.description||"Telegram API request failed"); return data.result;
 }
-async function send(chatId:number,text:string,reply_markup?:any) { return callTelegram("sendMessage",{chat_id:chatId,text,disable_web_page_preview:true,...(reply_markup?{reply_markup}:{})}); }
-const keyboard = {keyboard:[[{text:"🔗 Моя реферальная ссылка"},{text:"🏪 Магазины"}],[{text:"📚 Мои подписки"},{text:"👥 Кто модератор?"}],[{text:"📊 Моя статистика"}],[{text:"🚩 Жалоба на модерацию"},{text:"🌐 Открыть Marketplace"}]],resize_keyboard:true,is_persistent:true};
+const keyboard = {inline_keyboard:[
+  [{text:"Открыть Marketplace",web_app:{url:APP_URL}}],
+  [{text:"Магазины",callback_data:"shops"},{text:"Мои подписки",callback_data:"subscriptions"}],
+  [{text:"Мой профиль",web_app:{url:miniAppWebUrl("page","profile")}},{text:"Опубликовать",web_app:{url:miniAppWebUrl("page","publish")}}],
+  [{text:"Рефералы",callback_data:"ref"},{text:"Статистика",callback_data:"stats"}],
+  [{text:"Команда",callback_data:"moderators"},{text:"Помощь",web_app:{url:miniAppWebUrl("page","faq")}}],
+  [{text:"Группа маркетплейса",url:GROUP_URL},{text:"Жалоба на модерацию",callback_data:"complaint"}],
+]};
+async function send(chatId:number,text:string,reply_markup:any=keyboard) {
+  const kind=text.includes("магазин")||text.includes("Магазин")?"shops":text.includes("статист")?"stats":text.includes("ссылк")?"ref":text.includes("жалоб")?"support":"menu";
+  try {const result=await callTelegram("sendPhoto",{chat_id:chatId,photo:`${APP_URL}/api/telegram/card?kind=${kind}`,caption:text.slice(0,1000),reply_markup});if(text.length>1000)await callTelegram("sendMessage",{chat_id:chatId,text:text.slice(1000,5000),reply_markup});return result;}
+  catch {return callTelegram("sendMessage",{chat_id:chatId,text:text.slice(0,4000),disable_web_page_preview:true,reply_markup});}
+}
 export async function GET() { return NextResponse.json({ok:true,service:"Marketplace Telegram bot webhook"}); }
 export async function POST(request:NextRequest) {
   const expected=process.env.TELEGRAM_WEBHOOK_SECRET;
   if(expected && request.headers.get("x-telegram-bot-api-secret-token")!==expected) return NextResponse.json({error:"forbidden"},{status:403});
   try {
     const update=await request.json();
-    const message=update?.message;
-    if(!message?.from?.id || !message?.chat?.id) return NextResponse.json({ok:true});
-    const user=message.from; const chatId=Number(message.chat.id); const userId=Number(user.id);
-    const rawText=String(message.text||"").trim(); const text=rawText.toLowerCase();
+    const callback=update?.callback_query;
+    if(callback?.id) await callTelegram("answerCallbackQuery",{callback_query_id:callback.id}).catch(()=>null);
+    const message=update?.message || callback?.message;
+    if(!(callback?.from?.id || message?.from?.id) || !message?.chat?.id) return NextResponse.json({ok:true});
+    const user=callback?.from || message.from; const chatId=Number(message.chat.id); const userId=Number(user.id);
+    const rawText=callback?.data ? "/"+String(callback.data) : String(message.text||"").trim(); const text=rawText.toLowerCase();
+    const startTarget=rawText.match(/^\/start(?:@\w+)?\s+(ad|shop|review|profile|page)_([A-Za-z0-9_-]+)$/i);
     const startMatch=rawText.match(/^\/start(?:@\w+)?(?:\s+([0-9]{1,20}))?/i);
     if(startMatch) {
       const ref=Number(startMatch[1]||0);
       const existed=await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}&select=telegram_id,referred_by,bot_started_at&limit=1`).catch(()=>[]) as any[];
       const firstBotStart=!existed?.[0]?.bot_started_at;
-      const body:any={telegram_id:userId,username:user.username||null,first_name:user.first_name||null,last_name:user.last_name||null,photo_url:null,bot_started_at:existed?.[0]?.bot_started_at||new Date().toISOString(),bot_pending_action:null,updated_at:new Date().toISOString()};
+      const body:any={telegram_id:userId,username:user.username||null,first_name:user.first_name||null,last_name:user.last_name||null,bot_started_at:existed?.[0]?.bot_started_at||new Date().toISOString(),bot_pending_action:null,updated_at:new Date().toISOString()};
       if(firstBotStart && !existed?.[0]?.referred_by && Number.isSafeInteger(ref) && ref>0 && ref!==userId) {
         const referrer=await supabaseRequest(`marketplace_users?telegram_id=eq.${ref}&select=telegram_id&limit=1`).catch(()=>[]) as any[];
         if(referrer?.length) { body.referred_by=ref; body.referral_attributed_at=new Date().toISOString(); }
       }
       await supabaseRequest("marketplace_users?on_conflict=telegram_id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(body)});
-      const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||"").replace(/\/$/,"");
-      const botName=(process.env.TELEGRAM_BOT_USERNAME||"").replace(/^@/,"");
+      const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||APP_URL).replace(/\/$/,"");
+      const botName=(process.env.TELEGRAM_BOT_USERNAME||BOT_USERNAME).replace(/^@/,"");
       const referral=botName?`https://t.me/${botName}?start=${userId}`:"Ссылка появится после настройки TELEGRAM_BOT_USERNAME.";
+      if(startTarget){await send(chatId,"Открыть выбранный раздел внутри Telegram:",{inline_keyboard:[[{text:"Открыть Mini App",web_app:{url:miniAppWebUrl(startTarget[1].toLowerCase(),startTarget[2])}}],[{text:"Главное меню",callback_data:"menu"}]]});return NextResponse.json({ok:true});}
+      await callTelegram("sendMessage",{chat_id:chatId,text:"Меню Marketplace обновлено",reply_markup:{remove_keyboard:true}});
       await send(chatId,`Добро пожаловать в Marketplace!\n\nЗдесь можно получать уведомления о новых публикациях по подпискам, следить за отзывами и жалобами, открывать магазины и приглашать участников.\n\nТвоя персональная ссылка:\n${referral}${appUrl?`\n\nПлощадка: ${appUrl}`:""}`,keyboard);
       return NextResponse.json({ok:true});
     }
     if(["🔗 моя реферальная ссылка","/ref","реферальная ссылка"].includes(text)) {
-      const botName=(process.env.TELEGRAM_BOT_USERNAME||"").replace(/^@/,"");
+      const botName=(process.env.TELEGRAM_BOT_USERNAME||BOT_USERNAME).replace(/^@/,"");
       await send(chatId,botName?`Твоя ссылка для приглашений:\nhttps://t.me/${botName}?start=${userId}\n\nВ зачёт попадут только новые пользователи, которые откроют бота и нажмут «Старт».`:`Настройте TELEGRAM_BOT_USERNAME в Vercel, чтобы сформировать персональную ссылку.`); return NextResponse.json({ok:true});
     }
     if(["🏪 магазины","/shops","магазины"].includes(text)) {
       const shops=await supabaseRequest("marketplace_shops?hidden=eq.false&select=id,name,description,owner_telegram_id&order=display_order.asc,created_at.desc&limit=80").catch(()=>[]) as any[];
-      const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||"").replace(/\/$/,"");
+      const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||APP_URL).replace(/\/$/,"");
       if(!shops.length) { await send(chatId,"Пока нет опубликованных магазинов.",keyboard); return NextResponse.json({ok:true}); }
       if(appUrl) {
-        const rows=shops.map((shop:any)=>[{text:`🏪 ${String(shop.name).slice(0,50)}`,url:`${appUrl}/?shop=${encodeURIComponent(shop.id)}`}]);
+        const rows=shops.map((shop:any)=>[{text:`🏪 ${String(shop.name).slice(0,50)}`,web_app:{url:miniAppWebUrl("shop",String(shop.id))}}]);
         await send(chatId,"Магазины Marketplace — выбери нужный, чтобы открыть его витрину:",{inline_keyboard:rows});
       } else await send(chatId,shops.map((s:any,i:number)=>`${i+1}. ${s.name}${s.description?` — ${s.description}`:""}`).join("\n")+"\n\nСсылка на Mini App пока не настроена.",keyboard);
       return NextResponse.json({ok:true});
@@ -98,8 +115,8 @@ ${all.join("\n")}
       }
     }
     if(text==="🌐 открыть marketplace" || text==="/app") {
-      const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||"").replace(/\/$/,"");
-      await send(chatId,appUrl?`Открыть площадку: ${appUrl}`:"Ссылка на площадку пока не настроена. Добавьте NEXT_PUBLIC_APP_URL в Vercel."); return NextResponse.json({ok:true});
+      const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||APP_URL).replace(/\/$/,"");
+      await send(chatId,"Открыть Marketplace внутри Telegram — нажми кнопку ниже.",keyboard); return NextResponse.json({ok:true});
     }
     await send(chatId,"Выбери пункт меню ниже. Команды: /start, /ref, /shops, /subscriptions, /moderators, /stats, /complaint.",keyboard);
     return NextResponse.json({ok:true});

@@ -7,10 +7,12 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     let isStaff = false;
+    let sessionRole = "Гость";
     const initData = request.headers.get("x-telegram-init-data") || "";
     if (initData) {
       try {
         const session = await getVerifiedSession(initData);
+        sessionRole = session.role;
         isStaff = ["Владелец", "Заместитель владельца", "Администратор", "Модератор", "Стажёр"].includes(session.role);
       } catch { isStaff = false; }
     }
@@ -23,7 +25,7 @@ export async function GET(request: NextRequest) {
     const [banners, shops, faq, moderation, countsView] = await Promise.all([
       supabaseRequest(bannerQuery) as Promise<any[]>,
       supabaseRequest(shopQuery) as Promise<any[]>,
-      supabaseRequest("marketplace_faq_entries?select=id,section,heading,parent_heading,question,answer,created_at&order=created_at.asc&limit=1000") as Promise<any[]>,
+      supabaseRequest("marketplace_faq_entries?select=id,section,heading,parent_heading,question,answer,visible_roles,created_at&order=created_at.asc&limit=1000") as Promise<any[]>,
       supabaseRequest("marketplace_listing_moderation?select=object_type,object_id,public_hidden,admin_queue_hidden&limit=5000") as Promise<any[]>,
       supabaseRequest("marketplace_shop_subscription_counts?select=shop_id,subscriber_count").catch(()=>null) as Promise<any[]|null>,
     ]);
@@ -44,7 +46,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       banners: (banners || []).map((b:any) => ({ id:b.id, title:b.title, sub:b.description, kicker:"MARKETPLACE · ОБЪЯВЛЕНИЕ", color:"banner-purple", url:b.target_url||"", image:b.image_url||"", home:!!b.show_home, shops:!!b.show_shops, hidden:!!b.hidden, createdAt:b.created_at })),
       shops: (shops || []).map((s:any) => { const user:any=owners.get(String(s.owner_telegram_id))||{}; const username=String(user.username||"").replace(/^@/,""); return { id:s.id, name:s.name, ownerTelegramId:Number(s.owner_telegram_id), ownerUsername:username, owner:username?`@${username}`:`ID: ${s.owner_telegram_id}`, description:s.description||"", logo:s.logo_url||"", logo_url:s.logo_url||"", cover_url:s.cover_url||"", theme_key:s.theme_key||"banner-purple", listing_theme_key:s.listing_theme_key||s.theme_key||"banner-purple", logo_text_color:s.logo_text_color||"#ffffff", background_url:s.background_url||"", createdAt:s.created_at, hidden:!!s.hidden, displayOrder:Number(s.display_order??9999), subscriberCount:counts.get(String(s.id))||0 }; }),
-      faq: (faq || []).map((f:any) => ({ id:f.id, section:f.section, heading:f.heading||"", parent:f.parent_heading||"", question:f.question, answer:f.answer, createdAt:f.created_at })),
+      faq: (faq || []).filter((f:any)=>f.visible_roles?.includes("all") || f.visible_roles?.includes(sessionRole)).map((f:any)=>({id:f.id,section:f.section,heading:f.heading||"",parent:f.parent_heading||"",question:f.question,answer:f.answer,visibleRoles:f.visible_roles,createdAt:f.created_at})),
+      faqAdmin: ["Владелец","Заместитель владельца","Администратор"].includes(sessionRole) ? (faq||[]).map((f:any)=>({id:f.id,section:f.section,heading:f.heading||"",parent:f.parent_heading||"",question:f.question,answer:f.answer,visibleRoles:f.visible_roles,createdAt:f.created_at})) : [],
       hiddenListingIds: (moderation || []).filter((m:any)=>m.public_hidden).map((m:any)=>String(m.object_id)),
       adminQueueHiddenIds: isStaff ? (moderation || []).filter((m:any)=>m.admin_queue_hidden).map((m:any)=>String(m.object_id)) : [],
     }, { headers: { "Cache-Control": "no-store" } });
