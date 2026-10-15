@@ -67,3 +67,27 @@ test('bot start links produce an inline Web App button for the intended listing'
  const response=await api.POST(post({message:{from:{id:123,username:'fixture_user'},chat:{id:123},text:'/start ad_1234567890000'}}));assert.equal(response.status,200);
  const photo=sent.find(x=>x.url.endsWith('/sendPhoto'));assert.equal(photo.body.reply_markup.inline_keyboard[0][0].web_app.url,'https://market-ptz.vercel.app/?ad=1234567890000');
 });
+
+
+test('start repairs message-only webhooks without dropping pending updates or changing endpoint',async()=>{
+ const calls=[];
+ const api=load('app/api/telegram/bot/route.ts',{fetch:async(url,init)=>{
+   const method=url.split('/').pop(),body=JSON.parse(init.body);calls.push({method,body});
+   return new Response(JSON.stringify({ok:true,result:method==='getWebhookInfo'?{url:'https://market-ptz.vercel.app/api/telegram/bot',allowed_updates:['message'],max_connections:40}:{}}));
+ }});
+ assert.equal((await api.POST(post({message:{text:'/start',from:{id:123},chat:{id:123}}}))).status,200);
+ const repair=calls.find(c=>c.method==='setWebhook');assert.ok(repair);
+ assert.deepEqual(Array.from(repair.body.allowed_updates),['message','callback_query']);
+ assert.equal(repair.body.url,'https://market-ptz.vercel.app/api/telegram/bot');
+ assert.equal(repair.body.secret_token,'test-secret');assert.equal(repair.body.drop_pending_updates,undefined);
+});
+
+test('every inline menu callback answers the click and sends its section',async()=>{
+ for(const data of ['shops','subscriptions','ref','stats','moderators','complaint','menu']){
+   const calls=[];
+   const api=load('app/api/telegram/bot/route.ts',{fetch:async(url,init)=>{calls.push({method:url.split('/').pop(),body:JSON.parse(init.body)});return new Response(JSON.stringify({ok:true,result:{}}));}});
+   assert.equal((await api.POST(post({callback_query:{id:'click',data,from:{id:123},message:{chat:{id:123}}}}))).status,200);
+   assert.ok(calls.some(c=>c.method==='answerCallbackQuery'),data);
+   assert.ok(calls.some(c=>c.method==='sendPhoto'||c.method==='sendMessage'),data);
+ }
+});
