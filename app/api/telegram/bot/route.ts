@@ -18,10 +18,15 @@ const keyboard = {inline_keyboard:[
   [{text:"Команда",callback_data:"moderators"},{text:"Помощь",web_app:{url:miniAppWebUrl("page","faq")}}],
   [{text:"Группа маркетплейса",url:GROUP_URL},{text:"Жалоба на модерацию",callback_data:"complaint"}],
 ]};
+function formatBotText(text:string) {
+  const escaped=text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const newline=escaped.indexOf("\n");
+  return newline<0 ? `<b>${escaped}</b>` : `<b>${escaped.slice(0,newline)}</b>${escaped.slice(newline)}`;
+}
 async function send(chatId:number,text:string,reply_markup:any=keyboard) {
   const kind=text.includes("магазин")||text.includes("Магазин")?"shops":text.includes("статист")?"stats":text.includes("ссылк")?"ref":text.includes("жалоб")?"support":"menu";
-  try {const result=await callTelegram("sendPhoto",{chat_id:chatId,photo:`${APP_URL}/api/telegram/card?kind=${kind}`,caption:text.slice(0,1000),reply_markup});if(text.length>1000)await callTelegram("sendMessage",{chat_id:chatId,text:text.slice(1000,5000),reply_markup});return result;}
-  catch {return callTelegram("sendMessage",{chat_id:chatId,text:text.slice(0,4000),disable_web_page_preview:true,reply_markup});}
+  try {const result=await callTelegram("sendPhoto",{chat_id:chatId,photo:`${APP_URL}/api/telegram/card?kind=${kind}`,caption:formatBotText(text.slice(0,1000)),parse_mode:"HTML",reply_markup});if(text.length>1000)await callTelegram("sendMessage",{chat_id:chatId,text:formatBotText(text.slice(1000,5000)),parse_mode:"HTML",reply_markup});return result;}
+  catch {return callTelegram("sendMessage",{chat_id:chatId,text:formatBotText(text.slice(0,4000)),parse_mode:"HTML",disable_web_page_preview:true,reply_markup});}
 }
 export async function GET() { return NextResponse.json({ok:true,service:"Marketplace Telegram bot webhook"}); }
 export async function POST(request:NextRequest) {
@@ -47,12 +52,11 @@ export async function POST(request:NextRequest) {
         if(referrer?.length) { body.referred_by=ref; body.referral_attributed_at=new Date().toISOString(); }
       }
       await supabaseRequest("marketplace_users?on_conflict=telegram_id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(body)});
-      const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||APP_URL).replace(/\/$/,"");
       const botName=(process.env.TELEGRAM_BOT_USERNAME||BOT_USERNAME).replace(/^@/,"");
       const referral=botName?`https://t.me/${botName}?start=${userId}`:"Ссылка появится после настройки TELEGRAM_BOT_USERNAME.";
       if(startTarget){await send(chatId,"Открыть выбранный раздел внутри Telegram:",{inline_keyboard:[[{text:"Открыть Mini App",web_app:{url:miniAppWebUrl(startTarget[1].toLowerCase(),startTarget[2])}}],[{text:"Главное меню",callback_data:"menu"}]]});return NextResponse.json({ok:true});}
       await callTelegram("sendMessage",{chat_id:chatId,text:"Меню Marketplace обновлено",reply_markup:{remove_keyboard:true}});
-      await send(chatId,`Добро пожаловать в Marketplace!\n\nЗдесь можно получать уведомления о новых публикациях по подпискам, следить за отзывами и жалобами, открывать магазины и приглашать участников.\n\nТвоя персональная ссылка:\n${referral}${appUrl?`\n\nПлощадка: ${appUrl}`:""}`,keyboard);
+      await send(chatId,`Marketplace · Главное меню\n\nПокупай, продавай и находи своё.\n\n▫️ Объявления и магазины\n▫️ Подписки и уведомления\n▫️ Отзывы и поддержка\n\nТвоя ссылка для приглашений:\n${referral}\n\nВыбери раздел кнопками ниже ↓`,keyboard);
       return NextResponse.json({ok:true});
     }
     if(["🔗 моя реферальная ссылка","/ref","реферальная ссылка"].includes(text)) {
@@ -118,7 +122,7 @@ ${all.join("\n")}
       const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||APP_URL).replace(/\/$/,"");
       await send(chatId,"Открыть Marketplace внутри Telegram — нажми кнопку ниже.",keyboard); return NextResponse.json({ok:true});
     }
-    await send(chatId,"Выбери пункт меню ниже. Команды: /start, /ref, /shops, /subscriptions, /moderators, /stats, /complaint.",keyboard);
+    await send(chatId,"Marketplace · Главное меню\n\nОбъявления, магазины и твой профиль — всё под рукой.\n\nВыбери раздел кнопками ниже ↓",keyboard);
     return NextResponse.json({ok:true});
   } catch (error) {
     const message=error instanceof Error?error.message:"Webhook error";
