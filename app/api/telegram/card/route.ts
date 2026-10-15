@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     if(row.shop_id){const shops=await supabaseRequest(`marketplace_shops?id=eq.${row.shop_id}&hidden=eq.false&select=id&limit=1`) as any[];if(!shops?.length)return new Response("Not found",{status:404});}
     const hidden=await supabaseRequest(`marketplace_listing_moderation?object_type=eq.listing&object_id=eq.${ad}&public_hidden=eq.true&select=object_id&limit=1`) as any[];
     if(hidden?.length)return new Response("Not found",{status:404});
-    title=String(row.title).slice(0,90);subtitle=Number(row.price)?`${Number(row.price).toLocaleString("ru-RU")} ₽`:"Договорная цена";
+    title=String(row.title).slice(0,90);subtitle=Number(row.price)?`${Number(row.price).toLocaleString("ru-RU")} руб.`:"Договорная цена";
     const candidate=row.photo_urls?.[0];
     try{if(candidate&&new URL(candidate).origin===new URL(supabaseConfig().url).origin)photo=candidate;}catch{}
   }
