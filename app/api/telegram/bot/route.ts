@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { APP_URL, BOT_USERNAME, GROUP_URL, miniAppWebUrl } from "../../../../lib/telegram-links";
 import { sendTelegramMessage, supabaseRequest } from "../../../../lib/telegram-auth";
+import {helpGuides,cooperationGuides} from "../../../../lib/bot-guides";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const OWNER_ID = 998579758;
@@ -15,7 +16,8 @@ const keyboard = {inline_keyboard:[
   [{text:"Магазины",callback_data:"shops"},{text:"Мои подписки",callback_data:"subscriptions"}],
   [{text:"Мой профиль",web_app:{url:miniAppWebUrl("page","profile")}},{text:"Опубликовать",web_app:{url:miniAppWebUrl("page","publish")}}],
   [{text:"Рефералы",callback_data:"ref"},{text:"Статистика",callback_data:"stats"}],
-  [{text:"Команда",callback_data:"moderators"},{text:"Помощь",web_app:{url:miniAppWebUrl("page","faq")}}],
+  [{text:"Команда",callback_data:"moderators"},{text:"Помощь",callback_data:"help"}],
+  [{text:"Сотрудничество",callback_data:"cooperation"}],
   [{text:"Группа маркетплейса",url:GROUP_URL},{text:"Жалоба на модерацию",callback_data:"complaint"}],
 ]};
 function formatBotText(text:string) {
@@ -23,11 +25,20 @@ function formatBotText(text:string) {
   const newline=escaped.indexOf("\n");
   return newline<0 ? `<b>${escaped}</b>` : `<b>${escaped.slice(0,newline)}</b>${escaped.slice(newline)}`;
 }
-async function send(chatId:number,text:string,reply_markup:any=keyboard) {
-  const kind=text.includes("магазин")||text.includes("Магазин")?"shops":text.includes("статист")?"stats":text.includes("ссылк")?"ref":text.includes("жалоб")?"support":"menu";
+async function send(chatId:number,text:string,reply_markup:any=keyboard,cardKind?:string) {
+  const kind=cardKind || (text.includes("магазин")||text.includes("Магазин")?"shops":text.includes("статист")?"stats":text.includes("ссылк")?"ref":text.includes("жалоб")?"support":"menu");
   try {const result=await callTelegram("sendPhoto",{chat_id:chatId,photo:`${APP_URL}/api/telegram/card?kind=${kind}`,caption:formatBotText(text.slice(0,1000)),parse_mode:"HTML",reply_markup});if(text.length>1000)await callTelegram("sendMessage",{chat_id:chatId,text:formatBotText(text.slice(1000,5000)),parse_mode:"HTML",reply_markup});return result;}
   catch {return callTelegram("sendMessage",{chat_id:chatId,text:formatBotText(text.slice(0,4000)),parse_mode:"HTML",disable_web_page_preview:true,reply_markup});}
 }
+const helpKeyboard={inline_keyboard:[
+  ...Object.entries(helpGuides).map(([id,guide])=>[{text:guide.title,callback_data:`help_${id}`}]),
+  [{text:"Открыть FAQ",web_app:{url:miniAppWebUrl("page","faq")}}],
+  [{text:"Главное меню",callback_data:"menu"}],
+]};
+const cooperationKeyboard={inline_keyboard:[
+  ...Object.entries(cooperationGuides).map(([id,guide])=>[{text:guide.title,callback_data:`coop_${id}`}]),
+  [{text:"Главное меню",callback_data:"menu"}],
+]};
 export async function GET() { return NextResponse.json({ok:true,service:"Marketplace Telegram bot webhook"}); }
 export async function POST(request:NextRequest) {
   const expected=process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -69,8 +80,45 @@ export async function POST(request:NextRequest) {
       const referral=botName?`https://t.me/${botName}?start=${userId}`:"Ссылка появится после настройки TELEGRAM_BOT_USERNAME.";
       if(startTarget){await send(chatId,"Открыть выбранный раздел внутри Telegram:",{inline_keyboard:[[{text:"Открыть Mini App",web_app:{url:miniAppWebUrl(startTarget[1].toLowerCase(),startTarget[2])}}],[{text:"Главное меню",callback_data:"menu"}]]});return NextResponse.json({ok:true});}
       await callTelegram("sendMessage",{chat_id:chatId,text:"Меню Marketplace обновлено",reply_markup:{remove_keyboard:true}});
-      await send(chatId,`Marketplace · Главное меню\n\nПокупай, продавай и находи своё.\n\n▫️ Объявления и магазины\n▫️ Подписки и уведомления\n▫️ Отзывы и поддержка\n\nТвоя ссылка для приглашений:\n${referral}\n\nВыбери раздел кнопками ниже ↓`,keyboard);
+      await send(chatId,`Marketplace · Главное меню\n\nПокупай, продавай и находи своё.\n\n▫️ Объявления и магазины\n▫️ Подписки и уведомления\n▫️ Отзывы и поддержка\n\nТвоя ссылка для приглашений:\n${referral}\n\nВыбери раздел кнопками ниже ↓`,keyboard,"menu");
       return NextResponse.json({ok:true});
+    }
+    if(text==="/cancel"||text==="/cancel_contact"){
+      await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({bot_pending_action:null})});
+      await send(chatId,"Обращение отменено\n\nВыбери другой вариант сотрудничества или вернись в главное меню.",cooperationKeyboard,"cooperation");return NextResponse.json({ok:true});
+    }
+    // Navigating away cancels a draft so the next unrelated message is never relayed.
+    if((callback||rawText.startsWith("/")||text==="помощь"||text==="сотрудничество")&&!text.startsWith("/contact_")){
+      await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}&bot_pending_action=like.cooperation_*`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({bot_pending_action:null})});
+    }
+    if(text==="/help"||text==="помощь"){
+      await send(chatId,"Помощь Marketplace\n\nВыбери тему — покажу пошаговую инструкцию. Полная справка доступна по кнопке FAQ.",helpKeyboard,"help");return NextResponse.json({ok:true});
+    }
+    const helpId=text.match(/^\/help_([a-z]+)$/)?.[1];
+    if(helpId&&helpGuides[helpId]){
+      const guide=helpGuides[helpId];
+      await send(chatId,`${guide.title}\n\n${guide.body}`,{inline_keyboard:[
+        ...(guide.action?[[{text:guide.action.label,web_app:{url:miniAppWebUrl("page",guide.action.page)}}]]:[]),
+        [{text:"Открыть FAQ",web_app:{url:miniAppWebUrl("page","faq")}}],
+        [{text:"Назад в помощь",callback_data:"help"}],
+      ]},`help_${helpId}`);return NextResponse.json({ok:true});
+    }
+    if(text==="/cooperation"||text==="сотрудничество"){
+      await send(chatId,"Сотрудничество\n\nМагазин, реклама, верификация или участие в команде — выбери направление, чтобы узнать подробности и написать владельцу.",cooperationKeyboard,"cooperation");return NextResponse.json({ok:true});
+    }
+    const cooperationId=text.match(/^\/coop_([a-z]+)$/)?.[1];
+    if(cooperationId&&cooperationGuides[cooperationId]){
+      const guide=cooperationGuides[cooperationId];
+      await send(chatId,`${guide.title}\n\n${guide.body}`,{inline_keyboard:[
+        [{text:"Написать владельцу",callback_data:`contact_${cooperationId}`}],
+        [{text:"Назад к сотрудничеству",callback_data:"cooperation"}],
+      ]},`coop_${cooperationId}`);return NextResponse.json({ok:true});
+    }
+    const contactId=text.match(/^\/contact_([a-z]+)$/)?.[1];
+    if(contactId&&cooperationGuides[contactId]){
+      if(message.chat.type&&message.chat.type!=="private")return NextResponse.json({ok:true});
+      await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({bot_pending_action:`cooperation_${contactId}`})});
+      await send(chatId,`${cooperationGuides[contactId].title} · обращение\n\nНапиши одним текстовым сообщением, до 3000 символов. Бот передаст его владельцу @nukm0 вместе с темой, твоим именем, username и Telegram ID.\n\nДля отмены нажми кнопку ниже или отправь /cancel.`,{inline_keyboard:[[{text:"Отмена",callback_data:"cancel_contact"}]]},`coop_${contactId}`);return NextResponse.json({ok:true});
     }
     if(["🔗 моя реферальная ссылка","/ref","реферальная ссылка"].includes(text)) {
       const botName=(process.env.TELEGRAM_BOT_USERNAME||BOT_USERNAME).replace(/^@/,"");
@@ -123,6 +171,20 @@ ${all.join("\n")}
     }
     if(rawText && !rawText.startsWith("/") && !["🔗 моя реферальная ссылка","🏪 магазины","👥 кто модератор?","📊 моя статистика","🚩 жалоба на модерацию","🌐 открыть marketplace","📚 мои подписки"].includes(text)) {
       const pending=await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}&select=bot_pending_action&limit=1`).catch(()=>[]) as any[];
+      const topic=String(pending?.[0]?.bot_pending_action||"").replace(/^cooperation_/,"");
+      if(String(pending?.[0]?.bot_pending_action||"").startsWith("cooperation_")&&cooperationGuides[topic]){
+        if(message.chat.type&&message.chat.type!=="private")return NextResponse.json({ok:true});
+        if(rawText.length>3000){await send(chatId,"Сообщение слишком длинное\n\nСократи его до 3000 символов и отправь снова. Для отмены — /cancel.",{inline_keyboard:[[{text:"Отмена",callback_data:"cancel_contact"}]]},`coop_${topic}`);return NextResponse.json({ok:true});}
+        const updateId=Number(update.update_id);
+        if(!Number.isSafeInteger(updateId)||updateId<0)throw new Error("Missing update ID");
+        const created=await supabaseRequest("marketplace_contact_requests?on_conflict=telegram_update_id",{method:"POST",headers:{Prefer:"resolution=ignore-duplicates,return=representation"},body:JSON.stringify({telegram_update_id:updateId,telegram_id:userId,username:user.username||null,display_name:[user.first_name,user.last_name].filter(Boolean).join(" "),topic,message:rawText,status:"pending"})}) as any[];
+        if(!created?.length)return NextResponse.json({ok:true});
+        const delivered=await sendTelegramMessage(OWNER_ID,`🤝 Новое обращение · ${cooperationGuides[topic].title}\n\nОт: ${[user.first_name,user.last_name].filter(Boolean).join(" ")||"Пользователь"}\nUsername: ${user.username?"@"+user.username:"не указан"}\nTelegram ID: ${userId}\n\n${rawText}`);
+        await supabaseRequest(`marketplace_contact_requests?telegram_update_id=eq.${updateId}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({status:delivered?"sent":"failed",delivered_at:delivered?new Date().toISOString():null})});
+        if(!delivered){await send(chatId,"Не удалось доставить сообщение\n\nЗаявка сохранена, но бот пока не смог отправить её владельцу. Попробуй отправить сообщение ещё раз позже или отмени обращение командой /cancel.",{inline_keyboard:[[{text:"Отмена",callback_data:"cancel_contact"}]]},`coop_${topic}`);return NextResponse.json({ok:true});}
+        await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}&bot_pending_action=eq.cooperation_${topic}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({bot_pending_action:null})});
+        await send(chatId,"Сообщение передано владельцу\n\nТема: "+cooperationGuides[topic].title+". @nukm0 получил текст и твои контакты и сможет связаться с тобой в Telegram.",cooperationKeyboard,`coop_${topic}`);return NextResponse.json({ok:true});
+      }
       if(pending?.[0]?.bot_pending_action==="moderation_complaint") {
         await supabaseRequest("marketplace_moderation_complaints",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:userId,username:user.username||null,message:rawText,status:"new"})});
         await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({bot_pending_action:null})}).catch(()=>{});
@@ -135,7 +197,7 @@ ${all.join("\n")}
       const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.APP_URL||APP_URL).replace(/\/$/,"");
       await send(chatId,"Открыть Marketplace внутри Telegram — нажми кнопку ниже.",keyboard); return NextResponse.json({ok:true});
     }
-    await send(chatId,"Marketplace · Главное меню\n\nОбъявления, магазины и твой профиль — всё под рукой.\n\nВыбери раздел кнопками ниже ↓",keyboard);
+    await send(chatId,"Marketplace · Главное меню\n\nОбъявления, магазины и твой профиль — всё под рукой.\n\nВыбери раздел кнопками ниже ↓",keyboard,"menu");
     return NextResponse.json({ok:true});
   } catch (error) {
     const message=error instanceof Error?error.message:"Webhook error";

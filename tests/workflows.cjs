@@ -6,11 +6,13 @@ const path = require('node:path');
 const ts = require('typescript');
 const base = path.resolve(__dirname,'..');
 const links = { APP_URL:'https://market-ptz.vercel.app',BOT_USERNAME:'baraxolka_ptzbot',GROUP_URL:'https://t.me/marketplace_Support_info',miniAppWebUrl:(kind='page',id='home')=>`https://market-ptz.vercel.app/?${kind}=${id}`,telegramMiniAppLink:(kind='page',id='home')=>`https://t.me/baraxolka_ptzbot?startapp=${kind}_${id}`,telegramNotificationLink:value=>value };
+const guideModule={exports:{}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(base,'lib/bot-guides.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{module:guideModule,exports:guideModule.exports});
 function load(file,{role='Владелец',userId=998579758,db=async()=>[],fetch=async()=>new Response(JSON.stringify({ok:true,result:{}})),send=async()=>true,session}={}){
  const code=ts.transpileModule(fs.readFileSync(path.join(base,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  const module={exports:{}};
  const auth={getVerifiedSession:async()=>session||{user:{id:userId,username:'test_moderator',first_name:'Test'},role,isOwner:userId===998579758,shop:null},supabaseRequest:db,supabaseConfig:()=>({url:"https://fixture.supabase.co",key:"fixture"}),sendTelegramMessage:send,sendTelegramPost:async()=>true};
- vm.runInNewContext(code,{exports:module.exports,module,require:name=>name==='next/server'?{NextResponse:{json:(data,init={})=>new Response(JSON.stringify(data),{status:init.status||200,headers:init.headers})}}:name.includes('telegram-links')?links:auth,URL,URLSearchParams,Response,Buffer,fetch,console,process:{env:{TELEGRAM_BOT_TOKEN:'test-fixture',TELEGRAM_WEBHOOK_SECRET:'test-secret'}}});
+ vm.runInNewContext(code,{exports:module.exports,module,require:name=>name==='next/server'?{NextResponse:{json:(data,init={})=>new Response(JSON.stringify(data),{status:init.status||200,headers:init.headers})}}:name.includes('telegram-links')?links:name.includes('bot-guides')?guideModule.exports:auth,URL,URLSearchParams,Response,Buffer,fetch,console,process:{env:{TELEGRAM_BOT_TOKEN:'test-fixture',TELEGRAM_WEBHOOK_SECRET:'test-secret'}}});
  return module.exports;
 }
 const post=(body)=>({json:async()=>body,headers:{get:()=> 'test-secret'}});
@@ -116,4 +118,44 @@ test('Telegram photo delivery preserves long notification text and Mini App butt
  assert.equal(await module.exports.sendTelegramMessage(123,text,[[{text:'Open',url:links.APP_URL+'/?page=profile'}]],photo),true);
  assert.ok(calls[0].url.endsWith('/sendPhoto'));assert.equal(calls[0].body.photo,photo);assert.equal(calls[0].body.caption+calls[1].body.text,text);
  assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].web_app.url,links.APP_URL+'/?page=profile');
+});
+
+
+test('help and cooperation menus provide each guide with its own image and navigation',async()=>{
+ for(const data of ['help',...Object.keys(guideModule.exports.helpGuides).map(k=>'help_'+k),'cooperation',...Object.keys(guideModule.exports.cooperationGuides).map(k=>'coop_'+k)]){
+   const calls=[];const api=load('app/api/telegram/bot/route.ts',{fetch:async(url,init)=>{calls.push({method:url.split('/').pop(),body:JSON.parse(init.body)});return new Response(JSON.stringify({ok:true,result:{}}));}});
+   await api.POST(post({callback_query:{id:'guide',data,from:{id:123},message:{chat:{id:123,type:'private'}}}}));
+   const card=calls.find(c=>c.method==='sendPhoto');assert.ok(card,data);assert.equal(new URL(card.body.photo).searchParams.get('kind'),data);
+   const buttons=card.body.reply_markup.inline_keyboard.flat();
+   if(data.startsWith('coop_'))assert.ok(buttons.some(b=>b.callback_data==='contact_'+data.slice(5)),data);
+   if(data.startsWith('help_'))assert.ok(buttons.some(b=>b.web_app?.url.endsWith('page=faq')),data);
+ }
+});
+
+test('cooperation contact relays selected topic and sender only to the owner',async()=>{
+ const sends=[],writes=[];const api=load('app/api/telegram/bot/route.ts',{db:async(url,init)=>{
+   if(url.includes('select=bot_pending_action'))return [{bot_pending_action:'cooperation_shop'}];
+   if(init?.body)writes.push({url,body:JSON.parse(init.body)});
+   if(url.startsWith('marketplace_contact_requests?on_conflict'))return [{telegram_update_id:12345}];
+   return [];
+ },send:async(...args)=>{sends.push(args);return true;}});
+ await api.POST(post({update_id:12345,message:{text:'Хочу открыть магазин',from:{id:123,username:'demo',first_name:'Demo'},chat:{id:123,type:'private'}}}));
+ assert.equal(sends.length,1);assert.equal(sends[0][0],998579758);assert.match(sends[0][1],/Открыть магазин/);assert.match(sends[0][1],/@demo/);assert.match(sends[0][1],/Telegram ID: 123/);
+ assert.ok(writes.some(w=>w.body.status==='sent'));assert.ok(writes.some(w=>w.body.bot_pending_action===null));
+});
+
+test('failed delivery keeps contact draft and never claims success; duplicate update is not resent',async()=>{
+ for(const duplicate of [false,true]){
+  const writes=[],messages=[];let relays=0;
+  const api=load('app/api/telegram/bot/route.ts',{db:async(url,init)=>{if(url.includes('select=bot_pending_action'))return [{bot_pending_action:'cooperation_team'}];if(init?.body)writes.push(JSON.parse(init.body));if(url.startsWith('marketplace_contact_requests?on_conflict'))return duplicate?[]:[{}];return [];},send:async()=>{relays++;return false;},fetch:async(url,init)=>{messages.push(JSON.parse(init.body));return new Response(JSON.stringify({ok:true,result:{}}));}});
+  await api.POST(post({update_id:12346,message:{text:'Хочу помочь',from:{id:123},chat:{id:123,type:'private'}}}));
+  assert.equal(relays,duplicate?0:1);assert.ok(!writes.some(w=>w.bot_pending_action===null));assert.ok(!messages.some(m=>(m.caption||m.text||'').includes('Сообщение передано владельцу')));
+ }
+});
+
+test('cancel and menu navigation clear cooperation drafts without relaying a message',async()=>{
+ for(const text of ['/cancel','/help','/cooperation']){
+  const writes=[];let relays=0;const api=load('app/api/telegram/bot/route.ts',{db:async(url,init)=>{if(init?.body)writes.push(JSON.parse(init.body));return [];},send:async()=>{relays++;return true;}});
+  await api.POST(post({message:{text,from:{id:123},chat:{id:123,type:'private'}}}));assert.equal(relays,0);assert.ok(writes.some(w=>w.bot_pending_action===null),text);
+ }
 });
