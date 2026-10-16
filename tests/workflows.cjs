@@ -159,3 +159,28 @@ test('cancel and menu navigation clear cooperation drafts without relaying a mes
   await api.POST(post({message:{text,from:{id:123},chat:{id:123,type:'private'}}}));assert.equal(relays,0);assert.ok(writes.some(w=>w.bot_pending_action===null),text);
  }
 });
+
+
+test('public reviews never expose private dispute evidence',async()=>{
+ const api=load('app/api/marketplace/reviews/route.ts',{db:async url=>url.startsWith('marketplace_reviews?')?[{id:'r',stars:4,status:'approved',target_telegram_id:222,dispute_state:'pending',dispute_text:'PRIVATE',dispute_materials:['https://private/photo']}]:url.startsWith('rpc/')?{rating:4,count:1}:[]});
+ const data=await(await api.GET(get('type=profile&target=222'))).json();assert.equal(data.rating,4);assert.equal(data.count,1);assert.ok(!JSON.stringify(data).includes('PRIVATE'));assert.ok(!JSON.stringify(data).includes('private/photo'));assert.equal(data.reviews[0].can_dispute,false);
+});
+test('pending review sends no recipient bot notification',async()=>{
+ let messages=0;const api=load('app/api/marketplace/reviews/route.ts',{userId:111,send:async()=>{messages++;},db:async()=>[{id:'r',status:'pending'}]});
+ assert.equal((await api.POST(post({targetType:'profile',targetTelegramId:222,stars:4,description:'Good'}))).status,201);assert.equal(messages,0);
+});
+test('review dispute uses atomic recipient-checked RPC and limits photos',async()=>{
+ let called;const api=load('app/api/marketplace/reviews/dispute/route.ts',{userId:222,db:async(url,init)=>{if(url.startsWith('rpc/'))called={url,body:JSON.parse(init.body)};return {};}});
+ assert.equal((await api.POST(post({reviewId:'r',reason:'Reason',materials:Array(4).fill('https://photo')}))).status,400);
+ assert.equal((await api.POST(post({reviewId:'r',reason:'Reason',materials:['https://photo']}))).status,200);assert.equal(called.url,'rpc/marketplace_dispute_review');assert.equal(called.body.p_user,222);
+});
+test('appeals cannot attach another user restriction or omit evidence',async()=>{
+ const api=load('app/api/marketplace/appeal/route.ts',{userId:222,db:async()=>[]});
+ assert.equal((await api.POST(post({reportId:'foreign',description:'Reason',materials:['https://photo']}))).status,404);
+ const banned=load('app/api/marketplace/appeal/route.ts',{session:{user:{id:222},ban:{id:'ban',reason:'Reason'}},db:async()=>[]});
+ assert.equal((await banned.POST(post({description:'Reason',materials:[]}))).status,400);
+});
+test('deputy owner sees all role-specific FAQ entries',async()=>{
+ const api=load('app/api/marketplace/config/route.ts',{role:'Заместитель владельца',userId:222,db:async url=>url.startsWith('marketplace_faq_entries?')?[{id:'mod',visible_roles:['Модератор']},{id:'owner',visible_roles:['Владелец']}]:[]});
+ const request=get();request.headers.get=()=> 'signed';const data=await(await api.GET(request)).json();assert.equal(data.faq.length,2);
+});

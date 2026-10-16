@@ -1,3 +1,4 @@
+import {miniAppWebUrl} from "../../../../lib/telegram-links";
 import { NextRequest, NextResponse } from "next/server";
 import { getVerifiedSession, sendTelegramMessage, supabaseConfig, supabaseRequest } from "../../../../lib/telegram-auth";
 
@@ -130,21 +131,32 @@ export async function POST(request: NextRequest) {
           moderatorComment:review.moderator_comment||""
         };
       });
+    } else if(action==="review_dispute_decision"){
+      if(!moderator)return NextResponse.json({error:"Недостаточно прав."},{status:403});
+      const comment=String(payload.comment||"").trim();
+      if(!comment)return NextResponse.json({error:"Напишите комментарий модерации."},{status:400});
+      result=await supabaseRequest("rpc/marketplace_resolve_review_dispute",{method:"POST",body:JSON.stringify({p_actor:actorId,p_report:String(payload.reportId),p_accept:payload.accepted===true,p_comment:comment})});
+      const row=result as any;
+      if(row?.recipientId){const message=`Оспаривание отзыва: ${row.accepted?"принято — отзыв скрыт и не влияет на оценку":"отказано — отзыв остаётся опубликованным, повторное оспаривание недоступно"}.\nКомментарий модерации: ${comment}`;
+        await supabaseRequest("marketplace_notifications",{method:"POST",body:JSON.stringify({telegram_id:row.recipientId,title:"Решение по оспариванию",message,read:false})});await sendTelegramMessage(Number(row.recipientId),message);
+      }
     } else if (action === "review_decision") {
       if (!moderator) return NextResponse.json({error:"Недостаточно прав для модерации отзывов."},{status:403});
       const reviewId = String(payload.id || "");
       const decision = String(payload.decision || "");
       const statuses:Record<string,string> = {approve:"approved",reject:"rejected",hide:"hidden"};
       if (!reviewId || !statuses[decision]) return NextResponse.json({error:"Недопустимое решение по отзыву."},{status:400});
-      const targetReviews = await supabaseRequest(`marketplace_reviews?id=eq.${encodeURIComponent(reviewId)}&select=target_type,target_telegram_id&limit=1`) as any[];
+      const targetReviews = await supabaseRequest(`marketplace_reviews?id=eq.${encodeURIComponent(reviewId)}&select=target_type,target_telegram_id,approval_notified_at&limit=1`) as any[];
       if (targetReviews?.[0]?.target_type === "profile" && Number(targetReviews[0].target_telegram_id) === OWNER_ID) return NextResponse.json({error:"Отзывы владельцу платформы недоступны."},{status:400});
       result = await supabaseRequest(`marketplace_reviews?id=eq.${encodeURIComponent(reviewId)}`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({status:statuses[decision],moderator_comment:String(payload.comment||"").slice(0,1000),reviewed_by:actorId,reviewed_at:new Date().toISOString()})});
       const review = Array.isArray(result) ? result[0] : null;
-      if (review?.author_telegram_id) {
-        const title = decision === "approve" ? "Отзыв одобрен" : decision === "reject" ? "Отзыв отклонён" : "Отзыв скрыт";
-        const msg = decision === "approve" ? `Ваш отзыв (${review.stars}★) опубликован на Marketplace.` : decision === "reject" ? `Ваш отзыв (${review.stars}★) отклонён модерацией.${payload.comment?` Причина: ${String(payload.comment).slice(0,500)}`:""}` : `Ваш отзыв (${review.stars}★) скрыт модерацией.`;
-        await supabaseRequest("marketplace_notifications",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:review.author_telegram_id,title,message:msg,read:false})}).catch(()=>{});
-        await sendTelegramMessage(Number(review.author_telegram_id),msg).catch(()=>false);
+      if(review&&decision==="approve"&&!targetReviews[0]?.approval_notified_at){
+        const claimed=await supabaseRequest(`marketplace_reviews?id=eq.${encodeURIComponent(reviewId)}&approval_notified_at=is.null`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({approval_notified_at:new Date().toISOString()})}) as any[];
+        if(claimed.length){let recipient=Number(review.target_telegram_id||0);
+          if(review.target_type==="shop"){const shops=await supabaseRequest(`marketplace_shops?id=eq.${review.target_shop_id}&select=owner_telegram_id&limit=1`) as any[];recipient=Number(shops[0]?.owner_telegram_id||0);}
+          if(recipient){const message=`Вы получили новый отзыв — ${review.stars} звёзд.\n\n${review.description}\n\nОтзыв одобрен модерацией. Оспорить можно в личном кабинете (для магазина — в ЛК магазина): «Отзывы» → «Оспорить». В боте: «Помощь» → «Отзывы и рейтинг».`;
+          await supabaseRequest("marketplace_notifications",{method:"POST",body:JSON.stringify({telegram_id:recipient,title:`Новый отзыв · ${review.stars}★`,message,read:false,action_url:miniAppWebUrl("review",reviewId)})});await sendTelegramMessage(recipient,message,[[{text:"Открыть отзыв",url:miniAppWebUrl("review",reviewId)}]]);}
+        }
       }
     } else if (action === "broadcast") {
       if (!owner) return NextResponse.json({error:"Массовые уведомления может отправлять только владелец платформы."},{status:403});
@@ -221,7 +233,7 @@ export async function POST(request: NextRequest) {
       const phone = String(payload.phone ?? "").trim();
       const nickname = String(payload.nickname ?? "").trim();
       if (!Number.isSafeInteger(targetId) || targetId <= 0 || !fullName || !phone) return NextResponse.json({ error: "Укажите Telegram ID, ФИО и телефон." }, { status: 400 });
-      result = await supabaseRequest(`marketplace_users?telegram_id=eq.${targetId}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ verified: true, verified_by: actorId, verified_at: new Date().toISOString(), verified_full_name: fullName, verified_phone: phone, verified_nickname: nickname || null }) });
+      result = await supabaseRequest(`marketplace_users?telegram_id=eq.${targetId}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ verified: true, verified_by: actorId, verified_at: new Date().toISOString(), verified_full_name: fullName, verified_phone: phone, verified_vk_url:String(payload.vkUrl||"").trim().slice(0,300),verified_nickname: nickname || null }) });
       if (!Array.isArray(result) || result.length === 0) return NextResponse.json({ error: "Пользователь ещё не открывал Mini App. Попросите его войти один раз, затем повторите." }, { status: 404 });
     } else if (action === "delete_listing") {
       if (!admin) return NextResponse.json({ error: "Недостаточно прав для удаления объявлений." }, { status: 403 });
@@ -250,6 +262,11 @@ export async function POST(request: NextRequest) {
         const ownerRows = await supabaseRequest(`marketplace_users?username=ilike.${encodeURIComponent(ownerUsername)}&select=telegram_id&limit=1`).catch(()=>[]) as any[];
         if (ownerRows?.[0]?.telegram_id) objectOwnerTelegramId = Number(ownerRows[0].telegram_id);
       }
+      const objectType=String(payload.objectType||"listing"),objectId=String(payload.objectId||"");
+      if(!["listing","profile","shop"].includes(objectType))return NextResponse.json({error:"Недопустимый объект жалобы."},{status:400});
+      const objects=objectType==="listing"?await supabaseRequest(`marketplace_listings?listing_id=eq.${encodeURIComponent(objectId)}&select=seller_telegram_id&limit=1`):objectType==="shop"?await supabaseRequest(`marketplace_shops?id=eq.${encodeURIComponent(objectId)}&select=owner_telegram_id&limit=1`):await supabaseRequest(`marketplace_users?${/^\d+$/.test(objectId)?"telegram_id=eq.":"username=ilike."}${encodeURIComponent(objectId.replace(/^@/,""))}&select=telegram_id&limit=1`);
+      if(!objects?.[0])return NextResponse.json({error:"Объект жалобы не найден."},{status:404});
+      objectOwnerTelegramId=Number(objects[0].seller_telegram_id||objects[0].owner_telegram_id||objects[0].telegram_id);
       const rows = await supabaseRequest("marketplace_reports", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ reporter_telegram_id: actorId, object_type: String(payload.objectType ?? "listing"), object_id: payload.objectId ? String(payload.objectId) : null, object_title: String(payload.objectTitle ?? "").slice(0, 300), object_owner_username: ownerUsername || null, object_owner_telegram_id: objectOwnerTelegramId, reason, details, materials: Array.isArray(payload.materials) ? payload.materials : [], status: reason.toLowerCase().includes("мошеннич") ? "hidden_pending" : "new" }) }) as any[];
       result = rows?.[0] ?? null;
       if (reason.toLowerCase().includes("мошеннич") && payload.objectId) {
@@ -283,24 +300,41 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Заместитель не может отменить окончательное решение владельца." }, { status: 403 });
         }
       }
-      const targetId = Number(payload.targetTelegramId);
+      const reportRows=await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(reportId)}&select=*&limit=1`) as any[];
+      const currentReport=reportRows[0];
+      if(!currentReport||currentReport.status==="resolved")return NextResponse.json({error:"Жалоба уже закрыта или не найдена."},{status:409});
+      const targetId=Number(currentReport.object_owner_telegram_id||payload.targetTelegramId);
+      if(currentReport.object_type==="review")return NextResponse.json({error:"Используйте решение по оспариванию отзыва."},{status:400});
+      if(currentReport.object_type==="appeal"){
+        const accepted=decision==="accept_appeal";if(!["accept_appeal","reject_appeal"].includes(decision))return NextResponse.json({error:"Выберите решение по апелляции."},{status:400});
+        if(accepted){
+          await supabaseRequest(`marketplace_bans?id=eq.${encodeURIComponent(currentReport.object_id)}&telegram_id=eq.${currentReport.reporter_telegram_id}`,{method:"PATCH",body:JSON.stringify({active:false})});
+          await supabaseRequest(`marketplace_bans?report_id=eq.${encodeURIComponent(currentReport.object_id)}&telegram_id=eq.${currentReport.reporter_telegram_id}`,{method:"PATCH",body:JSON.stringify({active:false})});
+          const source=await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(currentReport.object_id)}&object_owner_telegram_id=eq.${currentReport.reporter_telegram_id}&select=object_type,object_id,owner_decision&limit=1`) as any[];
+          if(source[0]?.owner_decision==="hide_listing")await supabaseRequest(`marketplace_listing_moderation?object_type=eq.${encodeURIComponent(source[0].object_type)}&object_id=eq.${encodeURIComponent(source[0].object_id)}`,{method:"PATCH",body:JSON.stringify({public_hidden:false,reason:"Ограничение снято после апелляции",updated_by:actorId,updated_at:new Date().toISOString()})});
+        }
+        await supabaseRequest(`marketplace_reports?id=eq.${reportId}`,{method:"PATCH",body:JSON.stringify({status:"resolved",owner_decision:decision,owner_comment:String(payload.comment||""),owner_telegram_id:actorId,resolved_at:new Date().toISOString()})});
+        const message=`Апелляция ${accepted?"принята, ограничение снято":"отклонена"}.\nКомментарий модерации: ${String(payload.comment||"")}`;await sendTelegramMessage(Number(currentReport.reporter_telegram_id),message);
+        return NextResponse.json({ok:true,result:{accepted}});
+      }
       if (decision === "hide_listing") {
-        const objectType = String(payload.objectType ?? "listing").slice(0, 40);
-        const objectId = String(payload.objectId ?? "").slice(0, 100);
+        const objectType = String(currentReport.object_type);
+        const objectId = String(currentReport.object_id);
         if (objectId) {
           const existing = await supabaseRequest(`marketplace_listing_moderation?object_type=eq.${encodeURIComponent(objectType)}&object_id=eq.${encodeURIComponent(objectId)}&select=admin_queue_hidden&limit=1`) as any[];
           await supabaseRequest("marketplace_listing_moderation?on_conflict=object_type,object_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ object_type: objectType, object_id: objectId, public_hidden: true, admin_queue_hidden: !!existing?.[0]?.admin_queue_hidden, reason: String(payload.comment ?? "Скрыто после проверки жалобы"), updated_by: actorId, updated_at: new Date().toISOString() }) });
         }
       }
+      if(decision==="hide_listing"&&targetId>0){const message=`Ограничение: публикация скрыта после проверки жалобы.\nКомментарий модерации: ${String(payload.comment||"")}\nПодать апелляцию с описанием и доказательствами можно в личном кабинете, раздел «Ограничения».`;await supabaseRequest("marketplace_notifications",{method:"POST",body:JSON.stringify({telegram_id:targetId,title:"Ограничение публикации",message,read:false})});await sendTelegramMessage(targetId,message);}
       if (["temporary_ban", "permanent_ban"].includes(decision)) {
         if (!Number.isSafeInteger(targetId) || targetId <= 0 || targetId === OWNER_ID) return NextResponse.json({ error: "Для блокировки нужен Telegram ID владельца объекта жалобы." }, { status: 400 });
         const minutes = Number(payload.durationMinutes) || 0;
         const permanent = decision === "permanent_ban";
         if (!permanent && minutes <= 0) return NextResponse.json({ error: "Укажите длительность блокировки." }, { status: 400 });
         const banReason = String(payload.comment ?? "Нарушение правил");
-        await supabaseRequest("marketplace_bans", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ telegram_id: targetId, reason: banReason, permanent, expires_at: permanent ? null : new Date(Date.now() + minutes * 60_000).toISOString(), active: true, created_by: actorId }) });
+        await supabaseRequest("marketplace_bans", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ telegram_id: targetId, reason: banReason, permanent, expires_at: permanent ? null : new Date(Date.now() + minutes * 60_000).toISOString(), active: true, created_by: actorId,report_id:reportId }) });
         const banDurationText = permanent ? "навсегда" : `до ${new Date(Date.now() + minutes * 60_000).toLocaleString("ru-RU")}`;
-        const banMessage = `Ваш аккаунт Marketplace заблокирован ${banDurationText}. Причина: ${banReason}. Для обжалования напишите @nukm0 и укажите свой Telegram ID ${targetId}.`;
+        const banMessage = `Ваш аккаунт Marketplace заблокирован ${banDurationText}. Причина: ${banReason}. Подать апелляцию с описанием и доказательствами можно в личном кабинете.`;
         await supabaseRequest("marketplace_notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ telegram_id: targetId, title: "Аккаунт заблокирован", message: banMessage, read: false }) });
         await sendTelegramMessage(targetId, banMessage);
       }
@@ -312,7 +346,8 @@ export async function POST(request: NextRequest) {
       result = await supabaseRequest(`marketplace_reports?id=eq.${encodeURIComponent(String(payload.reportId ?? ""))}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "resolved", owner_decision: decision, owner_comment: String(payload.comment ?? ""), owner_telegram_id: actorId, ...(Number.isSafeInteger(targetId) && targetId > 0 ? { object_owner_telegram_id: targetId } : {}), resolved_at: new Date().toISOString() }) });
       const finalizedReport = Array.isArray(result) ? result[0] : null;
       if (finalizedReport?.reporter_telegram_id) {
-        const reportText = ["dismiss","no_action"].includes(decision) ? "Ваша жалоба была рассмотрена. Нарушение не подтвердилось по доступным материалам. Спасибо за содействие!" : "Ваша жалоба была рассмотрена, спасибо за содействие! Нарушитель был наказан!";
+        const measure=({warning:"предупреждение",hide_listing:"объявление скрыто",temporary_ban:"временная блокировка",permanent_ban:"постоянная блокировка"} as Record<string,string>)[decision]||"без ограничений";
+        const reportText=Number(finalizedReport.reporter_telegram_id)===targetId?`Ваша жалоба рассмотрена. Решение: ${measure}. Комментарий: ${String(payload.comment||"")}`:`Спасибо за помощь в поиске нарушений. Ваша жалоба рассмотрена. Мера: ${measure}. Комментарий модерации: ${String(payload.comment||"")}`;
         await supabaseRequest("marketplace_notifications",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:Number(finalizedReport.reporter_telegram_id),title:"Жалоба рассмотрена",message:reportText,read:false})}).catch(()=>{});
         await sendTelegramMessage(Number(finalizedReport.reporter_telegram_id),reportText).catch(()=>false);
       }
@@ -358,7 +393,7 @@ export async function POST(request: NextRequest) {
       const banReason = String(payload.reason ?? "Нарушение правил");
       result = await supabaseRequest("marketplace_bans", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ telegram_id: targetId, reason: banReason, permanent, expires_at: expiresAt, active: true, created_by: actorId }) });
       const durationText = permanent ? "навсегда" : `до ${new Date(expiresAt!).toLocaleString("ru-RU")}`;
-      const banMessage = `Ваш аккаунт Marketplace заблокирован ${durationText}. Причина: ${banReason}. Для обжалования напишите @nukm0 и укажите свой Telegram ID ${targetId}.`;
+      const banMessage = `Ваш аккаунт Marketplace заблокирован ${durationText}. Причина: ${banReason}. Подать апелляцию с описанием и доказательствами можно в личном кабинете.`;
       await supabaseRequest("marketplace_notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ telegram_id: targetId, title: "Аккаунт заблокирован", message: banMessage, read: false }) });
       await sendTelegramMessage(targetId, banMessage);
     } else {

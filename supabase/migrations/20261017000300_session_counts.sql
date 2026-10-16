@@ -1,0 +1,5 @@
+create or replace function public.marketplace_session_counts(p_user bigint,p_staff boolean default false) returns jsonb language sql stable security invoker set search_path=public as $$
+select jsonb_build_object('referralCount',(select count(*) from marketplace_users where referred_by=p_user and bot_started_at is not null),'totalRegistered',(select count(*) from marketplace_users where miniapp_started_at is not null),'referralRanking',case when p_staff then coalesce((select jsonb_agg(jsonb_build_object('telegramId',u.telegram_id,'username',u.username,'name',u.first_name,'count',r.total) order by r.total desc) from (select referred_by,count(*) as total from marketplace_users where referred_by is not null and bot_started_at is not null group by referred_by order by total desc limit 500)r join marketplace_users u on u.telegram_id=r.referred_by),'[]'::jsonb) else '[]'::jsonb end);
+$$;
+revoke execute on function public.marketplace_session_counts(bigint,boolean) from public,anon,authenticated;
+grant execute on function public.marketplace_session_counts(bigint,boolean) to service_role;

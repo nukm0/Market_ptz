@@ -47,9 +47,10 @@ export async function GET(request: NextRequest) {
     const authorsById = new Map((authorRows || []).map((author:any)=>[String(author.telegram_id),author]));
     const enriched = (rows || []).map((review:any) => {
       const author:any = authorsById.get(String(review.author_telegram_id)) || {};
-      return { ...review, author_username: author.username || "", author_name: author.first_name || "" };
+      return { id:review.id, stars:review.stars, description:review.description, created_at:review.created_at, status:review.status, dispute_state:(Number(review.target_telegram_id)===session?.user.id||(review.target_type==="shop"&&String(session?.shop?.id)===String(review.target_shop_id)))?review.dispute_state:undefined, can_dispute:review.dispute_state==="none"&&(Number(review.target_telegram_id)===session?.user.id||(review.target_type==="shop"&&String(session?.shop?.id)===String(review.target_shop_id))), author_username: author.username || "", author_name: author.first_name || "" };
     });
-    return NextResponse.json({reviews:enriched},{headers:{"Cache-Control":"no-store","Vary":"x-telegram-init-data"}});
+    const summary=await supabaseRequest("rpc/marketplace_review_summary",{method:"POST",body:JSON.stringify({p_type:type,p_target:String(target)})});
+    return NextResponse.json({reviews:enriched,...summary},{headers:{"Cache-Control":"no-store","Vary":"x-telegram-init-data"}});
   } catch (error) { const message = error instanceof Error ? error.message : "Request failed"; return NextResponse.json({error:message.includes("not configured")?"Серверная база не настроена.":"Не удалось загрузить отзывы."},{status:message.includes("not configured")?503:400}); }
 }
 export async function POST(request: NextRequest) {
@@ -74,21 +75,6 @@ export async function POST(request: NextRequest) {
     if (type === "profile" && data.target_telegram_id === session.user.id) return NextResponse.json({error:"Нельзя оставить отзыв самому себе."},{status:400});
     const result = await supabaseRequest("marketplace_reviews",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify(data)});
     const review = Array.isArray(result) ? result[0] : result as any;
-    let recipientId = type === "profile" ? Number(data.target_telegram_id) : 0;
-    if (type === "shop") {
-      const shopRows = await supabaseRequest(`marketplace_shops?id=eq.${encodeURIComponent(String(data.target_shop_id))}&select=name,owner_telegram_id&limit=1`) as any[];
-      recipientId = Number(shopRows?.[0]?.owner_telegram_id || 0);
-    }
-    if (recipientId > 0 && recipientId !== session.user.id) {
-      const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "https://market-ptz.vercel.app").replace(/\/$/, "");
-      const message = `На ваш ${type === "shop" ? "магазин" : "аккаунт"} оставили отзыв: ${stars}★.
-
-Описание: ${description}${appUrl && review?.id ? `
-
-Открыть в Telegram: ${telegramMiniAppLink("review",String(review.id))}` : ""}`;
-      await supabaseRequest("marketplace_notifications", {method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:recipientId,title:`Новый отзыв · ${stars}★`,message,read:false,action_url:appUrl && review?.id ? telegramMiniAppLink("review",String(review.id)) : null})}).catch(()=>null);
-      await sendTelegramMessage(recipientId, message, appUrl && review?.id ? [[{text:"Открыть отзыв / оспорить",url:miniAppWebUrl("review",String(review.id))}]] : undefined).catch(()=>false);
-    }
     return NextResponse.json({ok:true,review},{status:201});
   } catch (error) { const message = error instanceof Error ? error.message : "Request failed"; return NextResponse.json({error:message.includes("not configured")?"Серверная база не настроена.":"Не удалось отправить отзыв."},{status:message.includes("not configured")?503:400}); }
 }

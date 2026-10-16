@@ -13,10 +13,14 @@ export async function POST(request: NextRequest) {
     const description=String(body?.description||"").trim().slice(0,4000);
     const price=Math.max(0,Number(body?.price)||0);
     const listingId=String(body?.listingId||"");
-    const listingType=body?.listingType==="Покупка"?"Покупка":"Продажа";
+    const listingType=["Покупка","Продажа","Обмен"].includes(body?.listingType)?body.listingType:"Продажа";
     const listingGroup=body?.listingGroup==="магазина"?"магазина":"частное";
     const photoUrls=Array.isArray(body?.photoUrls)?body.photoUrls.filter((x:any)=>typeof x==="string"&&/^https:\/\//i.test(x)).slice(0,3):[];
-    if(!/^\d{10,20}$/.test(listingId)||!title||!category) return NextResponse.json({error:"Заполните название и категорию объявления."},{status:400});
+    if(!/^\d{10,20}$/.test(listingId)) return NextResponse.json({error:"Не удалось подготовить объявление. Повторите попытку."},{status:400});
+    if(!category)return NextResponse.json({error:"Выберите категорию."},{status:400});
+    if(!title)return NextResponse.json({error:"Напишите название."},{status:400});
+    if(!description)return NextResponse.json({error:"Напишите описание."},{status:400});
+    if(!photoUrls.length)return NextResponse.json({error:"Добавьте хотя бы одну фотографию."},{status:400});
     const me=await supabaseRequest(`marketplace_users?telegram_id=eq.${session.user.id}&select=username&limit=1`) as any[];
     const username=String(me?.[0]?.username||session.user.username||"");
     let shopId:string|null=null;

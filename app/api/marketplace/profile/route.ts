@@ -16,9 +16,9 @@ export async function GET(request: NextRequest) {
     }
     let rows: any[];
     if (/^\d{5,20}$/.test(target)) {
-      rows = await supabaseRequest(`marketplace_users?telegram_id=eq.${encodeURIComponent(target)}&select=telegram_id,username,first_name,photo_url,profile_description,profile_cover_url,profile_background_url,profile_text_color,profile_theme_key&limit=1`) as any[];
+      rows = await supabaseRequest(`marketplace_users?telegram_id=eq.${encodeURIComponent(target)}&select=telegram_id,username,first_name,last_name,photo_url,verified,profile_updated_at,profile_personal_background_url,profile_description,profile_cover_url,profile_background_url,profile_text_color,profile_theme_key&limit=1`) as any[];
     } else {
-      rows = await supabaseRequest(`marketplace_users?username=ilike.${encodeURIComponent(target)}&select=telegram_id,username,first_name,photo_url,profile_description,profile_cover_url,profile_background_url,profile_text_color,profile_theme_key&limit=1`) as any[];
+      rows = await supabaseRequest(`marketplace_users?username=ilike.${encodeURIComponent(target)}&select=telegram_id,username,first_name,last_name,photo_url,verified,profile_updated_at,profile_personal_background_url,profile_description,profile_cover_url,profile_background_url,profile_text_color,profile_theme_key&limit=1`) as any[];
     }
     const profile = rows?.[0];
     if (!profile) return NextResponse.json({ error: "Профиль не найден." }, { status: 404 });
@@ -35,13 +35,13 @@ export async function GET(request: NextRequest) {
     ]);
     const subscriberCount = Number(subscriberRows?.[0]?.subscriber_count || 0);
     const viewCount = Number(viewRows?.[0]?.view_count || 0);
-    const ratingRows = id === 998579758 ? [] : await supabaseRequest(`marketplace_reviews?target_type=eq.profile&target_telegram_id=eq.${id}&status=eq.approved&select=stars`) as any[];
-    const rating = id === 998579758 ? 5 : ratingRows.length ? ratingRows.reduce((sum:number,r:any)=>sum+Number(r.stars),0)/ratingRows.length : 0;
+    const summary=await supabaseRequest("rpc/marketplace_review_summary",{method:"POST",body:JSON.stringify({p_type:"profile",p_target:String(id)})}) as any;
+    const rating=id===998579758?5:Number(summary?.rating||0);
     return NextResponse.json({ profile: {
-      telegramId: id, username: profile.username || "", firstName: profile.first_name || "", photoUrl: profile.photo_url || "",
-      description: profile.profile_description || "", coverUrl: profile.profile_cover_url || "", backgroundUrl: profile.profile_background_url || "",
+      telegramId: id, username: profile.username || "", firstName: profile.first_name || "", lastName:profile.last_name||"",verified:id===998579758||!!profile.verified,isOwner:id===998579758,updatedAt:profile.profile_updated_at, photoUrl: profile.photo_url || "",
+      description: profile.profile_description || "", coverUrl: profile.profile_cover_url || "", backgroundUrl: profile.profile_personal_background_url || profile.profile_background_url || "",
       textColor: profile.profile_text_color || "#ffffff", themeKey: profile.profile_theme_key || "banner-purple",
-      subscriberCount, views: viewCount, rating, reviewCount:ratingRows.length, canReview:id !== 998579758,
+      subscriberCount, views: viewCount, rating, reviewCount:Number(summary?.count||0), canReview:id !== 998579758,
     } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Request failed";
@@ -67,6 +67,8 @@ export async function POST(request: NextRequest) {
     const themeKey = ["banner-purple", "banner-blue", "banner-pink", "banner-black", ...(session.isOwner ? ["banner-gray"] : [])].includes(String(body?.themeKey)) ? String(body.themeKey) : "banner-purple";
     const textColor = themeKey !== "banner-black" && body?.textColor === "#000000" ? "#000000" : "#ffffff";
     const patch = {
+      profile_personal_background_url:safeUrl(body?.personalBackgroundUrl),
+      profile_updated_at:new Date().toISOString(),
       profile_description: description,
       profile_cover_url: safeUrl(body?.coverUrl),
       profile_background_url: safeUrl(body?.backgroundUrl),
@@ -75,7 +77,7 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
     const result = await supabaseRequest(`marketplace_users?telegram_id=eq.${session.user.id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(patch) }) as any[];
-    return NextResponse.json({ ok: true, description: result?.[0]?.profile_description ?? description, profileSettings: { coverUrl: result?.[0]?.profile_cover_url ?? patch.profile_cover_url ?? "", backgroundUrl: result?.[0]?.profile_background_url ?? patch.profile_background_url ?? "", textColor: result?.[0]?.profile_text_color ?? textColor, themeKey: result?.[0]?.profile_theme_key ?? themeKey } });
+    return NextResponse.json({ ok: true, description: result?.[0]?.profile_description ?? description, profileSettings: { personalBackgroundUrl:result?.[0]?.profile_personal_background_url||"",updatedAt:result?.[0]?.profile_updated_at, coverUrl: result?.[0]?.profile_cover_url ?? patch.profile_cover_url ?? "", backgroundUrl: result?.[0]?.profile_background_url ?? patch.profile_background_url ?? "", textColor: result?.[0]?.profile_text_color ?? textColor, themeKey: result?.[0]?.profile_theme_key ?? themeKey } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Request failed";
     const missing = message.includes("not configured") || message.includes("must be configured");

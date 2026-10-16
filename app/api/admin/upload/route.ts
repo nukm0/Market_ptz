@@ -8,9 +8,9 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const session = await getVerifiedSession(typeof body?.initData === "string" ? body.initData : "");
+    const session = await getVerifiedSession(typeof body?.initData === "string" ? body.initData : "",{allowBanned:body?.folder==="appeals"});
     const requestedFolder = String(body?.folder ?? "admin");
-    const isReportEvidence = requestedFolder === "reports";
+    const isReportEvidence = ["reports","appeals"].includes(requestedFolder);
     const isListingUpload = requestedFolder === "listings";
     const isProfileUpload = ["profile-cover", "profile-background", "personal-background"].includes(requestedFolder);
     const isOwnedShopUpload = requestedFolder.startsWith("shop-") && !!session.shop && Number(session.shop.owner_telegram_id) === session.user.id;

@@ -69,7 +69,7 @@ export async function sendTelegramPost(telegramId:number, message:string, listin
   return sendTelegramMessage(telegramId,message,[[{text:"Открыть объявление в Telegram",url:miniAppWebUrl("ad",listingId)}]]);
 }
 
-export async function getVerifiedSession(initData: string, options: { allowBanned?: boolean } = {}) {
+async function loadVerifiedSession(initData: string, options: { allowBanned?: boolean } = {}) {
   const user = verifyTelegramInitData(initData);
   const id = String(user.id);
   let role = id === "998579758" ? "Владелец" : "Участник";
@@ -108,8 +108,8 @@ export async function getVerifiedSession(initData: string, options: { allowBanne
       ? Promise.resolve([] as Array<{ role: string }>)
       : supabaseRequest(`marketplace_staff_roles?telegram_id=eq.${id}&select=role&limit=1`) as Promise<Array<{ role: string }>>,
     supabaseRequest(`marketplace_shops?owner_telegram_id=eq.${id}&select=id,name,description,logo_url,cover_url,created_at,owner_telegram_id,hidden,theme_key,listing_theme_key,logo_text_color,background_url&limit=1`) as Promise<any[]>,
-    supabaseRequest(`marketplace_bans?telegram_id=eq.${id}&active=eq.true&select=reason,permanent,expires_at,created_at&order=created_at.desc&limit=5`) as Promise<any[]>,
-    supabaseRequest(`marketplace_users?telegram_id=eq.${id}&select=verified,verified_full_name,verified_nickname,profile_description,profile_cover_url,profile_background_url,profile_text_color,profile_theme_key&limit=1`) as Promise<any[]>,
+    supabaseRequest(`marketplace_bans?telegram_id=eq.${id}&active=eq.true&select=id,reason,permanent,expires_at,created_at&order=created_at.desc&limit=5`) as Promise<any[]>,
+    supabaseRequest(`marketplace_users?telegram_id=eq.${id}&select=verified,verified_full_name,verified_nickname,profile_description,profile_cover_url,profile_background_url,profile_text_color,profile_theme_key,profile_personal_background_url,profile_updated_at&limit=1`) as Promise<any[]>,
     loadCount(`marketplace_profile_subscription_counts?target_telegram_id=eq.${id}&select=subscriber_count&limit=1`, `marketplace_profile_subscriptions?target_telegram_id=eq.${id}&select=subscriber_telegram_id&limit=10000`),
     supabaseRequest(`marketplace_deleted_shop_subscriptions?telegram_id=eq.${id}&select=shop_id,shop_name,deleted_at&order=deleted_at.desc&limit=1000`).catch(() => []) as Promise<any[]>,
     supabaseRequest(`marketplace_notifications?telegram_id=eq.${id}&read=eq.false&select=id,title,message,created_at&order=created_at.desc&limit=50`).catch(() => []) as Promise<any[]>,
@@ -131,9 +131,11 @@ export async function getVerifiedSession(initData: string, options: { allowBanne
 
   return {
     user, role, isOwner: user.id === 998579758, shop, ban,
-    verified: !!profileRows?.[0]?.verified,
+    verified: user.id===998579758 || !!profileRows?.[0]?.verified,
     profileDescription: profileRows?.[0]?.profile_description || "",
     profileSettings: {
+      personalBackgroundUrl: profileRows?.[0]?.profile_personal_background_url || "",
+      updatedAt:profileRows?.[0]?.profile_updated_at,
       coverUrl: profileRows?.[0]?.profile_cover_url || "",
       backgroundUrl: profileRows?.[0]?.profile_background_url || "",
       textColor: profileRows?.[0]?.profile_text_color || "#ffffff",
@@ -144,4 +146,13 @@ export async function getVerifiedSession(initData: string, options: { allowBanne
     notifications: notifications || [],
     shopSubscriptions: (shopSubscriptionRows || []).map((row:any)=>String(row.shop_id))
   };
+}
+
+// Coalesce the parallel bootstrap calls; role and ban changes are visible within three seconds.
+const sessions=new Map<string,{until:number;value:Promise<Awaited<ReturnType<typeof loadVerifiedSession>>>}>();
+export function getVerifiedSession(initData:string,options:{allowBanned?:boolean}={}){
+ const key=String(!!options.allowBanned)+":"+initData,now=Date.now();const found=sessions.get(key);
+ if(found&&found.until>now)return found.value;
+ if(sessions.size>200)sessions.clear();
+ const value=loadVerifiedSession(initData,options).catch(error=>{sessions.delete(key);throw error;});sessions.set(key,{until:now+3000,value});return value;
 }
