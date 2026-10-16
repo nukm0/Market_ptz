@@ -25,12 +25,20 @@ type Ad = {
   sellerTelegramId?: number; shopId?: string; reviewedBy?:number; reviewedUsername?:string; reviewedName?:string; reviewedAt?:string; moderationHidden?: boolean; adminQueueHidden?: boolean;
 };
 const initialAds: Ad[] = [];
-const categories = ["Все", "Vape", "Техника", "Одежда", "Услуги"];
+const categories = ["Все", "Vape", "Техника", "Одежда", "Дом и сад", "Мебель", "Авто", "Спорт", "Детское", "Красота", "Услуги", "Другое"];
+const categorySymbols:Record<string,string>={Все:"✳",Vape:"☁",Техника:"⌘",Одежда:"◇","Дом и сад":"⌂",Мебель:"▦",Авто:"↗",Спорт:"◎",Детское:"☆",Красота:"✧",Услуги:"✦",Другое:"⋯"};
 const subcategories: Record<string, string[]> = {
   Vape: ["Подики", "Услуги", "Расходники"],
   Техника: ["Б/у", "Новое"],
   Одежда: ["Б/у", "Новое"],
+  "Дом и сад": ["Для дома", "Сад и дача", "Инструменты"],
+  Мебель: ["Для спальни", "Для гостиной", "Столы и стулья", "Хранение"],
+  Авто: ["Запчасти", "Аксессуары", "Шины и диски"],
+  Спорт: ["Инвентарь", "Велосипеды", "Туризм"],
+  Детское: ["Игрушки", "Детская одежда", "Коляски и кресла"],
+  Красота: ["Косметика", "Парфюмерия", "Уход"],
   Услуги: ["Предоставление услуги", "Поиск услуги"],
+  Другое: ["Хобби", "Книги", "Прочее"],
 };
 const money = (n: number) => n === 0 ? "Договорная" : n.toLocaleString("ru-RU") + " ₽";
 function openTelegramContact(target: string | number | undefined, message: string) {
@@ -370,6 +378,14 @@ export default function Home() {
     window.addEventListener("keydown", closeOnEscape);
     return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", closeOnEscape); };
   }, [adminPanelOpen, tab, selected]);
+
+  useEffect(()=>{
+    if(!showFilters||tab!=="Главная")return;
+    const before=document.body.style.overflow;document.body.style.overflow="hidden";
+    const close=(event:KeyboardEvent)=>{if(event.key==="Escape")setShowFilters(false);};
+    window.addEventListener("keydown",close);
+    return()=>{document.body.style.overflow=before;window.removeEventListener("keydown",close);};
+  },[showFilters,tab]);
 
   async function removeStaffMember(user: string) {
     const match = user.match(/^id:(\d+)$/);
@@ -862,26 +878,27 @@ export default function Home() {
         ) : (
           <div className="content">
             {tab === "Главная" && <>
-              <div className="home-create-row"><div><strong>Есть что продать?</strong><span>Размести объявление за пару минут</span></div><button className="primary-button home-create-button" onClick={()=>{setListingGroup("частное");setShowCreate(true)}}><Plus size={17}/> Подать объявление</button></div>
               <div className={`hero ${currentBanner.color}`} style={(currentBanner as any).image ? {backgroundImage:`linear-gradient(90deg,rgba(25,18,48,.92),rgba(25,18,48,.35)),url(${(currentBanner as any).image})`,backgroundSize:"cover",backgroundPosition:"center"} : undefined}>
                 <div className="hero-copy"><span className="hero-kicker"><Sparkles size={13}/> {currentBanner.kicker}</span><h1>{currentBanner.title.split("\n").map((text,i)=><span key={i}>{text}<br/></span>)}</h1><p>{currentBanner.sub}</p><button className="hero-button" onClick={()=>{const current=currentBanner as any;if(current.action==="group"){if(window.Telegram?.WebApp?.openTelegramLink)window.Telegram.WebApp.openTelegramLink(GROUP_URL);else window.open(GROUP_URL,"_blank","noopener,noreferrer");}else if(current.action==="publish"){setListingGroup("частное");setShowCreate(true);}else if(current.action==="faq")setTab("FAQ");else if(current.url)window.open(current.url,"_blank","noopener,noreferrer");}}>{(currentBanner as any).button||"Подробнее"} <ArrowUpRight size={16}/></button></div>
                 <div className="hero-art"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="hero-cube">М<span>.</span></div><div className="float-card float-one">✦ <b>Новые находки</b></div><div className="float-card float-two"><Heart size={14} fill="currentColor"/> Твоё избранное</div></div>
                 <div className="banner-controls"><span>{String(banner+1).padStart(2,"0")} <i>/ {String(allBanners.length).padStart(2,"0")}</i></span><button onClick={() => setBanner((banner+allBanners.length-1)%allBanners.length)} aria-label="Предыдущий баннер"><ChevronLeft size={17}/></button><button onClick={() => setBanner((banner+1)%allBanners.length)} aria-label="Следующий баннер"><ChevronRight size={17}/></button><div className="banner-progress"><span style={{width: `${(banner+1)/allBanners.length*100}%`}}/></div></div>
               </div>
               <div className="section-heading"><div><span className="section-overline">ПОИСК ПО МАРКЕТПЛЕЙСУ</span><h2>Что будем искать?</h2></div><span className="result-count">Объявления рядом с тобой</span></div>
-              <div className="search-row"><div className="search-field"><Search size={19}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Название, категория или продавец..."/>{search && <button aria-label="Очистить поиск" onClick={()=>setSearch("")}><X size={16}/></button>}</div><button className={`filter-button ${showFilters ? "filter-active" : ""}`} onClick={()=>setShowFilters(v=>!v)} aria-expanded={showFilters}><SlidersHorizontal size={17}/> Фильтры</button></div>
-              <div className="category-row">{categories.filter(c=>c!=="Услуги").map((c,i)=><button key={c} onClick={()=>changeCategory(c)} className={`category-chip ${category===c?"chosen":""}`}><span className="category-symbol">{["✳","☁","⌘","◈","↗"][i]}</span>{c}</button>)}</div>
-              {showFilters && <section className="filter-panel" aria-label="Фильтры объявлений">
-                <div className="filter-panel-head"><div><span className="section-overline">НАСТРОЙКИ ВЫДАЧИ</span><h3>Фильтры объявлений</h3></div><button className="icon-button" aria-label="Закрыть фильтры" onClick={()=>setShowFilters(false)}><X size={17}/></button></div>
+              <div className="search-row home-search"><div className="search-field"><Search size={19}/><input aria-label="Поиск объявлений" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Что ищешь?"/>{search && <button aria-label="Очистить поиск" onClick={()=>setSearch("")}><X size={16}/></button>}</div><button className={`filter-button ${showFilters ? "filter-active" : ""}`} onClick={()=>setShowFilters(v=>!v)} aria-expanded={showFilters} aria-controls="home-filters" aria-label="Фильтры объявлений"><SlidersHorizontal size={18}/><span>Фильтры</span>{(category!=="Все"||listingType!=="Все"||priceFrom||priceTo||selectedSubs.length>0)&&<i className="home-filter-dot"/>}</button></div>
+              <div className="category-row home-categories" aria-label="Категории объявлений">{categories.map(c=><button key={c} aria-pressed={category===c} onClick={()=>changeCategory(c)} className={`category-chip ${category===c?"chosen":""}`}><span className="category-symbol" aria-hidden="true">{categorySymbols[c]}</span>{c}</button>)}</div>
+              {showFilters && <div className="home-filter-backdrop" onClick={()=>setShowFilters(false)}><section id="home-filters" className="filter-panel home-filter-dialog" role="dialog" aria-modal="true" aria-label="Фильтры объявлений" onClick={e=>e.stopPropagation()}>
+                <div className="filter-panel-head"><div><span className="section-overline">НАСТРОЙКИ ВЫДАЧИ</span><h3>Фильтры объявлений</h3></div><button className="icon-button" aria-label="Закрыть фильтры" autoFocus onClick={()=>setShowFilters(false)}><X size={17}/></button></div>
                 <div className="filter-grid">
                   <div className="form-field"><label>Тип объявления</label><div className="filter-choice-row">{["Все","Покупка","Продажа"].map(type=><button key={type} className={`filter-choice ${listingType===type?"selected":""}`} onClick={()=>setListingType(type)}>{type}</button>)}</div></div>
                   <div className="form-field"><label>Цена, ₽</label><div className="price-range"><input aria-label="Цена от" type="number" min="0" placeholder="От" value={priceFrom} onChange={e=>setPriceFrom(e.target.value)}/><span>—</span><input aria-label="Цена до" type="number" min="0" placeholder="До" value={priceTo} onChange={e=>setPriceTo(e.target.value)}/></div>{priceFrom!=="" && priceTo!=="" && Number(priceFrom)>Number(priceTo) && <small className="filter-error">Цена «от» не может быть больше цены «до».</small>}</div>
-                  <div className="form-field"><label>Категория</label><select value={category} onChange={e=>changeCategory(e.target.value)}>{categories.filter(c=>c!=="Услуги").map(c=><option key={c}>{c}</option>)}</select></div>
-                  <div className="form-field"><label>Подкатегории <span>можно выбрать несколько</span></label><div className="filter-subcategories">{(category==="Все" ? Array.from(new Set(Object.values(subcategories).flat())) : (subcategories[category]||[])).map(s=><button type="button" key={s} className={`sub-chip ${selectedSubs.includes(s)?"chosen-sub":""}`} onClick={()=>toggleSubcategory(s)}>{selectedSubs.includes(s)?"✓ ":""}{s}</button>)}</div></div>
+                  <div className="form-field"><label>Категория</label><select value={category} onChange={e=>changeCategory(e.target.value)}>{categories.map(c=><option key={c}>{c}</option>)}</select></div>
+                  <div className="form-field"><label>Подкатегории <span>можно выбрать несколько</span></label>{category==="Все"?<p className="home-filter-hint">Выбери категорию, чтобы уточнить раздел.</p>:<div className="filter-subcategories">{(subcategories[category]||[]).map(s=><button type="button" key={s} className={`sub-chip ${selectedSubs.includes(s)?"chosen-sub":""}`} onClick={()=>toggleSubcategory(s)}>{selectedSubs.includes(s)?"✓ ":""}{s}</button>)}</div>}</div>
                 </div>
-                <div className="filter-panel-actions"><span>Найдено: <b>{filtered.length}</b></span><button className="secondary-button" onClick={resetFilters}><RotateCcw size={15}/> Сбросить фильтры</button><button className="primary-button" onClick={()=>setShowFilters(false)}>Показать {filtered.length}</button></div>
-              </section>}
+                <div className="filter-panel-actions"><span>Найдено: <b>{filtered.length}</b></span><button className="secondary-button" onClick={resetFilters}><RotateCcw size={15}/> Сбросить фильтры</button><button className="primary-button" disabled={priceFrom!==""&&priceTo!==""&&Number(priceFrom)>Number(priceTo)} onClick={()=>setShowFilters(false)}>Показать {filtered.length}</button></div>
+              </section></div>}
+              <div className="home-quick-filters" aria-label="Тип объявления">{["Все","Продажа","Покупка"].map(type=><button key={type} className={listingType===type?"active":""} aria-pressed={listingType===type} onClick={()=>setListingType(type)}>{type==="Все"?"Все объявления":type==="Продажа"?"Продают":"Ищут"}</button>)}{(priceFrom||priceTo||selectedSubs.length>0)&&<button className="home-filter-summary" onClick={()=>setShowFilters(true)}><SlidersHorizontal size={13}/> Параметры</button>}</div>
               {category!=="Все" && !showFilters && <div className="subcategory-row"><button className={sub==="Все" && selectedSubs.length===0?"sub-chip chosen-sub":"sub-chip"} onClick={()=>{setSub("Все");setSelectedSubs([])}}>Все</button>{(subcategories[category]||[]).map(s=><button key={s} className={selectedSubs.includes(s)||sub===s?"sub-chip chosen-sub":"sub-chip"} onClick={()=>toggleSubcategory(s)}>{s}</button>)}</div>}
+              <div className="home-create-row"><div><strong>Дай вещам вторую жизнь</strong><span>Твоё объявление увидят участники площадки</span></div><button className="primary-button home-create-button" onClick={()=>{setListingGroup("частное");setShowCreate(true)}}><Plus size={17}/> Создать объявление</button></div>
               <div className="section-heading listing-heading" id="listing"><div><span className="section-overline">СВЕЖЕЕ НА ПЛОЩАДКЕ</span><h2>Лента объявлений <span className="heading-count">{filtered.length}</span></h2></div><select className="sort-select" aria-label="Сортировка объявлений" value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="newest">Сначала новые</option><option value="priceAsc">Сначала дешевле</option><option value="priceDesc">Сначала дороже</option></select></div>
               <div className="ad-grid">{filtered.map(ad=><AdCard key={ad.id} ad={ad} liked={favorites.includes(ad.id)} onOpen={()=>{setSelected(ad);setViewHistory(old=>[ad.id,...old.filter(id=>id!==ad.id)]);setAds(old=>old.map(x=>x.id===ad.id?{...x,views:x.views+1}:x));trackListingView(ad);}} onLike={()=>toggleFavorite(ad.id)} onReport={()=>setReportTarget(ad)}/>)}</div>
               {filtered.length===0 && <div className="empty-state"><Search size={30}/><h3>Ничего не найдено</h3><p>Попробуй изменить запрос или категорию.</p><button className="secondary-button" onClick={resetFilters}>Сбросить фильтры</button></div>}
@@ -890,7 +907,7 @@ export default function Home() {
 
             {tab === "Личный кабинет" && <>
               <PageTitle overline="ТВОЁ ПРОСТРАНСТВО" title="Личный кабинет" subtitle="Профиль, настройки, статистика, отзывы и частные объявления." />
-              <section className={`profile-area profile-theme-${String(profileSettings.themeKey || "banner-purple").replace("banner-", "")} ${profileSettings.textColor === "#000000" ? "profile-text-black" : "profile-text-white"}`} style={{ color: profileSettings.textColor, backgroundImage: profileSettings.backgroundUrl ? `linear-gradient(180deg,${profileSettings.textColor === "#000000" ? "rgba(255,255,255,.84),rgba(255,255,255,.90)" : "rgba(9,10,18,.58),rgba(9,10,18,.78)"}),url("${profileSettings.backgroundUrl.replace(/"/g, "%22")}")` : undefined, backgroundSize: "cover", backgroundPosition: "center" }}>
+              <section className={`profile-area profile-theme-${String(profileSettings.themeKey || "banner-purple").replace("banner-", "")} ${profileSettings.textColor === "#000000" ? "profile-text-black" : "profile-text-white"}`} style={{ color: profileSettings.textColor }}>
                 <div className={`profile-banner profile-cover-banner ${profileSettings.coverUrl ? "has-profile-cover" : ""}`} style={{ color: profileSettings.textColor, ["--profile-cover-image" as any]: profileSettings.coverUrl ? `linear-gradient(90deg,${profileSettings.textColor === "#000000" ? "rgba(255,255,255,.82),rgba(255,255,255,.48)" : "rgba(15,12,28,.82),rgba(15,12,28,.34)"}),url("${profileSettings.coverUrl.replace(/"/g, "%22")}")` : undefined }}>
                   <div className="profile-avatar-wrap">{telegramUser?.photo_url ? <img className="avatar avatar-purple profile-big" src={telegramUser.photo_url} alt="Фото Telegram" /> : <div className="avatar avatar-purple profile-big">{(telegramUser?.first_name || "М").slice(0, 1)}</div>}<button className="profile-settings-icon" title="Настройки профиля" aria-label="Настройки профиля" onClick={openProfileSettings}><Settings2 size={18} /></button></div>
                   <div className="profile-main">
@@ -1005,7 +1022,7 @@ export default function Home() {
               </section>
             </>}
             {tab === "Профиль продавца" && <>
-              <section className={`profile-area public-profile-view profile-theme-${String(publicProfileSettings?.themeKey || "banner-purple").replace("banner-", "")} ${publicProfileSettings?.textColor === "#000000" ? "profile-text-black" : "profile-text-white"}`} style={{ color: publicProfileSettings?.textColor || "#ffffff", backgroundImage: publicProfileSettings?.backgroundUrl ? `linear-gradient(180deg,${publicProfileSettings?.textColor === "#000000" ? "rgba(255,255,255,.84),rgba(255,255,255,.90)" : "rgba(9,10,18,.58),rgba(9,10,18,.78)"}),url("${String(publicProfileSettings.backgroundUrl).replace(/"/g, "%22")}")` : undefined, backgroundSize: "cover", backgroundPosition: "center" }}>
+              <section className={`profile-area public-profile-view profile-theme-${String(publicProfileSettings?.themeKey || "banner-purple").replace("banner-", "")} ${publicProfileSettings?.textColor === "#000000" ? "profile-text-black" : "profile-text-white"}`} style={{ color: publicProfileSettings?.textColor || "#ffffff" }}>
               <PageTitle overline="ПРОФИЛЬ УЧАСТНИКА" title={`@${publicProfileSettings?.username || sellerProfileUsername}`} subtitle="Профиль участника Marketplace." />
                 <div className={`profile-banner profile-cover-banner ${publicProfileSettings?.coverUrl ? "has-profile-cover" : ""}`} style={{ color: publicProfileSettings?.textColor || "#ffffff", ["--profile-cover-image" as any]: publicProfileSettings?.coverUrl ? `linear-gradient(90deg,${publicProfileSettings?.textColor === "#000000" ? "rgba(255,255,255,.82),rgba(255,255,255,.48)" : "rgba(15,12,28,.82),rgba(15,12,28,.34)"}),url("${String(publicProfileSettings.coverUrl).replace(/"/g, "%22")}")` : undefined }}>
                   {publicProfileSettings?.photoUrl ? <img className="avatar avatar-blue profile-big" src={publicProfileSettings.photoUrl} alt="Фото профиля" /> : <div className="avatar avatar-blue profile-big">{String(publicProfileSettings?.firstName || sellerProfileUsername[0] || "U").slice(0, 1).toUpperCase()}</div>}
