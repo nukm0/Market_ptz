@@ -100,7 +100,6 @@ export default function Home() {
   const [showReferralRanking, setShowReferralRanking] = useState(false);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileDescriptionDraft, setProfileDescriptionDraft] = useState("");
-  const [siteTheme, setSiteTheme] = useState<"dark"|"light">("dark");
   const [shopThemeDraft, setShopThemeDraft] = useState({themeKey:"banner-purple",logoTextColor:"#ffffff",backgroundUrl:"",coverUrl:"",description:""});
   const [showShopSettings, setShowShopSettings] = useState(false);
   const [showProfileSettings, setShowProfileSettings] = useState(false);
@@ -189,9 +188,10 @@ export default function Home() {
   const [showAccountReport, setShowAccountReport] = useState(false);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = siteTheme;
-    document.documentElement.style.colorScheme = siteTheme === "light" ? "light" : "dark";
-  }, [siteTheme]);
+    document.documentElement.dataset.theme = "dark";
+    document.documentElement.style.colorScheme = "dark";
+    try { localStorage.removeItem("marketplace-theme-v1"); } catch {}
+  }, []);
 
   useEffect(() => {
     const webApp = window.Telegram?.WebApp;
@@ -208,7 +208,7 @@ export default function Home() {
     if(!webApp?.initData)fetch("/api/marketplace/config",{cache:"no-store"}).then(r=>r.json()).then(config=>{if(Array.isArray(config.faq))setFaqCustomEntries(config.faq);}).catch(()=>undefined);
     const profileTarget = new URLSearchParams(window.location.search).get("profile");
     if (profileTarget) { setSellerProfileUsername(profileTarget.replace(/^@/, "")); setTab("Профиль продавца"); }
-    try { const storedTheme=localStorage.getItem("marketplace-theme-v1"); if(storedTheme==="light"||storedTheme==="dark") setSiteTheme(storedTheme); const storedBackground=localStorage.getItem("marketplace-personal-background-v1"); if(storedBackground) setLocalPlatformBackground(storedBackground); } catch {}
+    try { const storedBackground=localStorage.getItem("marketplace-personal-background-v1"); if(storedBackground) setLocalPlatformBackground(storedBackground); } catch {}
     if (webApp?.initDataUnsafe?.user) { setTelegramUser(webApp.initDataUnsafe.user); setDemoRole("Участник"); }
     try {
       const saved = localStorage.getItem("marketplace-state-v5") || localStorage.getItem("marketplace-state-v4");
@@ -269,9 +269,8 @@ export default function Home() {
   useEffect(() => {
     if (!persistReady) return;
     localStorage.setItem("marketplace-state-v5", JSON.stringify({ads,favorites,reports,reviews,shopReviews,viewHistory,deletedAds,adminViewedListingIds,subscriptions,profileDescription,notifications,adminAudit,customBanners,managedShops,staffBadges,verifiedUsers,faqCustomEntries}));
-    localStorage.setItem("marketplace-theme-v1", siteTheme);
     localStorage.setItem("marketplace-personal-background-v1", localPlatformBackground);
-  }, [ads,favorites,reports,reviews,shopReviews,viewHistory,subscriptions,profileDescription,notifications,adminAudit,staffRoles,customBanners,managedShops,staffBadges,verifiedUsers,faqCustomEntries,adminViewedListingIds,persistReady,siteTheme,localPlatformBackground]);
+  }, [ads,favorites,reports,reviews,shopReviews,viewHistory,subscriptions,profileDescription,notifications,adminAudit,staffRoles,customBanners,managedShops,staffBadges,verifiedUsers,faqCustomEntries,adminViewedListingIds,persistReady,localPlatformBackground]);
 
 
   useEffect(() => {
@@ -805,7 +804,7 @@ export default function Home() {
 
 
   return (
-    <main className={`app-shell ${siteTheme==="light"?"theme-light":"theme-dark"} profile-layout-theme-${String(sceneTheme||"banner-purple").replace("banner-","")} scene-${sceneLight?"light":"dark"} ${viewingShop?"store-scene":viewingProfile?"public-profile-scene":""} ${profileSettings.themeKey==="banner-black"?"viewer-monochrome":""}`} style={{["--viewer-accent" as any]:viewerAccent,["--viewer-text" as any]:viewerLight?"#202633":"#f5f5fa",["--viewer-muted" as any]:viewerLight?"#626b7c":"#b9b3c9",["--viewer-panel" as any]:profileSettings.themeKey==="banner-black"?"rgba(14,14,14,.96)":viewerLight?"rgba(250,251,255,.94)":"rgba(22,21,33,.94)",["--viewer-field" as any]:profileSettings.themeKey==="banner-black"?"#101010":viewerLight?"#ffffff":"#191725",["--viewer-overlay" as any]:profileSettings.themeKey==="banner-black"?"rgba(5,5,5,.94)":viewerLight?"rgba(250,251,255,.93)":"rgba(18,17,28,.93)",["--viewer-background" as any]:viewerBackground?`url("${String(viewerBackground).replace(/"/g,"%22")}")`:"none",["--scene-accent" as any]:sceneAccent,backgroundColor:sceneTheme==="banner-black"?"#000000":undefined,["--scene-background" as any]:sceneBackground?`url("${String(sceneBackground).replace(/"/g,"%22")}")`:"none", ...(sceneBackground?{backgroundImage:`linear-gradient(${sceneLight?"rgba(248,249,254,.72),rgba(248,249,254,.82)":"rgba(8,10,18,.58),rgba(8,10,18,.72)"}),url("${String(sceneBackground).replace(/"/g,"%22")}")`,backgroundAttachment:"fixed",backgroundSize:"cover",backgroundPosition:"center"}:{})}} onTouchStart={(e)=>{(window as any).__mpTouchX=e.touches[0]?.clientX}} onTouchEnd={(e)=>{const start=(window as any).__mpTouchX;const end=e.changedTouches[0]?.clientX;if(typeof start==="number"&&end-start>70&&start<60)setSideOpen(true);if(typeof start==="number"&&start-end>70&&sideOpen)setSideOpen(false)}}>
+    <main className={`app-shell theme-dark profile-layout-theme-${String(sceneTheme||"banner-purple").replace("banner-","")} scene-${sceneLight?"light":"dark"} ${viewingShop?"store-scene":viewingProfile?"public-profile-scene":""} ${profileSettings.themeKey==="banner-black"?"viewer-monochrome":""}`} style={{["--viewer-accent" as any]:viewerAccent,["--viewer-text" as any]:viewerLight?"#202633":"#f5f5fa",["--viewer-muted" as any]:viewerLight?"#626b7c":"#b9b3c9",["--viewer-panel" as any]:profileSettings.themeKey==="banner-black"?"rgba(14,14,14,.96)":viewerLight?"rgba(250,251,255,.94)":"rgba(22,21,33,.94)",["--viewer-field" as any]:profileSettings.themeKey==="banner-black"?"#101010":viewerLight?"#ffffff":"#191725",["--viewer-overlay" as any]:profileSettings.themeKey==="banner-black"?"rgba(5,5,5,.94)":viewerLight?"rgba(250,251,255,.93)":"rgba(18,17,28,.93)",["--viewer-background" as any]:viewerBackground?`url("${String(viewerBackground).replace(/"/g,"%22")}")`:"none",["--scene-accent" as any]:sceneAccent,backgroundColor:sceneTheme==="banner-black"?"#000000":undefined,["--scene-background" as any]:sceneBackground?`url("${String(sceneBackground).replace(/"/g,"%22")}")`:"none", ...(sceneBackground?{backgroundImage:`linear-gradient(${sceneLight?"rgba(248,249,254,.72),rgba(248,249,254,.82)":"rgba(8,10,18,.58),rgba(8,10,18,.72)"}),url("${String(sceneBackground).replace(/"/g,"%22")}")`,backgroundAttachment:"fixed",backgroundSize:"cover",backgroundPosition:"center"}:{})}} onTouchStart={(e)=>{(window as any).__mpTouchX=e.touches[0]?.clientX}} onTouchEnd={(e)=>{const start=(window as any).__mpTouchX;const end=e.changedTouches[0]?.clientX;if(typeof start==="number"&&end-start>70&&start<60)setSideOpen(true);if(typeof start==="number"&&start-end>70&&sideOpen)setSideOpen(false)}}>
       <>{sideOpen && <button className="sidebar-scrim" aria-label="Закрыть меню" onClick={()=>setSideOpen(false)}/>}<aside className={`sidebar ${sideOpen?"sidebar-open":""}`}>
         <button className="brand" onClick={() => setSideOpen(v=>!v)} aria-label="Открыть меню">
           <span className="brand-mark">M</span><span>Marketplace<span className="brand-dot">.</span></span>
