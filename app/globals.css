@@ -415,3 +415,37 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none}button,a,input,tex
 .app-shell .detail-page .line{background:color-mix(in srgb,var(--detail-accent) 22%,transparent)}
 .app-shell .detail-page .detail-photo>.photo-expand{font-size:18px;filter:none}
 @media(max-width:640px){.app-shell .detail-page .detail-info{padding:18px;border-radius:20px}.app-shell .detail-page .listing-description{padding:16px}.app-shell .detail-page .detail-meta .favorite-button{padding:8px 12px}}
+
+/* Rounded FAQ cards and storefronts share the active scene's neon palette. */
+.app-shell .faq-workspace{--faq-accent:var(--viewer-accent,#a78bfa);--faq-outline:color-mix(in srgb,var(--faq-accent) 58%,transparent);--faq-glow:color-mix(in srgb,var(--faq-accent) 16%,transparent)}
+.app-shell .faq-workspace :is(.workspace-toolbar,.page-title){padding:22px 24px;border:1px solid var(--faq-outline)!important;border-radius:24px;background:var(--viewer-panel,#171821)!important;box-shadow:0 0 24px var(--faq-glow);margin-bottom:22px}
+.app-shell .faq-workspace .faq-topic{border:1px solid var(--faq-outline)!important;border-radius:22px;background:var(--viewer-panel,#171821)!important;box-shadow:0 0 18px var(--faq-glow);padding:24px;gap:12px;transition:box-shadow .18s,border-color .18s}
+.app-shell .faq-workspace .faq-topic>svg{color:var(--faq-accent);filter:drop-shadow(0 0 6px var(--faq-glow))}
+.app-shell .faq-workspace .faq-item{display:block;border:1px solid var(--faq-outline)!important;border-radius:20px!important;margin:14px 0!important;overflow:hidden;background:var(--viewer-panel,#171821)!important;box-shadow:0 0 18px var(--faq-glow)}
+.app-shell .faq-workspace .faq-item summary{padding:20px 22px;gap:18px;line-height:1.6;overflow-wrap:anywhere;list-style:none}
+.app-shell .faq-workspace .faq-item summary::-webkit-details-marker{display:none}
+.app-shell .faq-workspace .faq-item summary>svg{width:18px;height:18px;flex:0 0 18px;color:var(--faq-accent);transition:transform .18s}
+.app-shell .faq-workspace .faq-item[open] summary{border-bottom:1px solid color-mix(in srgb,var(--faq-accent) 22%,transparent);background:color-mix(in srgb,var(--faq-accent) 8%,transparent)}
+.app-shell .faq-workspace .faq-item[open] summary>svg{transform:rotate(90deg)}
+.app-shell .faq-workspace .faq-item p{margin:0;padding:20px 22px;font-size:13px;line-height:1.85;color:var(--viewer-text,#f5f5fa);white-space:pre-wrap;overflow-wrap:anywhere}
+.app-shell .faq-workspace :is(.back-link,.secondary-button){border:1px solid var(--faq-outline)!important;border-radius:14px;padding:12px 16px;min-height:42px;background:var(--viewer-panel,#171821)!important;color:var(--viewer-text,#fff);box-shadow:0 0 12px var(--faq-glow)}
+.app-shell .faq-workspace :is(.faq-topic,.faq-item):hover{border-color:var(--faq-accent)!important;box-shadow:0 0 26px var(--faq-glow)}
+.app-shell .faq-workspace :is(button,summary,a):focus-visible{outline:2px solid var(--faq-accent);outline-offset:4px}
+.app-shell :is(.shop-banner-card,.stores-feature-banner){border:1px solid color-mix(in srgb,var(--viewer-accent,#a78bfa) 65%,transparent)!important;border-radius:24px;box-shadow:0 0 22px color-mix(in srgb,var(--viewer-accent,#a78bfa) 17%,transparent);overflow:hidden}
+.app-shell .shop-banner-card{transition:transform .18s,box-shadow .18s;min-width:0}
+.app-shell .shop-banner-card:hover{transform:translateY(-3px);box-shadow:0 0 30px color-mix(in srgb,var(--viewer-accent,#a78bfa) 28%,transparent)}
+.app-shell .shop-banner-card :is(strong,.shop-banner-tagline,.shop-banner-meta){overflow-wrap:anywhere}
+.app-shell.store-scene{--shop-neon:var(--scene-accent,#a78bfa);--shop-outline:color-mix(in srgb,var(--shop-neon) 58%,transparent);--shop-glow:color-mix(in srgb,var(--shop-neon) 16%,transparent)}
+.app-shell.store-scene :is(.shop-cover,.shop-catalog-backdrop){border:1px solid var(--shop-outline)!important;border-radius:24px;box-shadow:0 0 24px var(--shop-glow)}
+.app-shell.store-scene .shop-catalog-backdrop{padding:24px;margin-top:22px}
+.app-shell.store-scene :is(.shop-action-row button,.shop-action-row a,.reviews-heading .primary-button,.rating-pill,.review-list-card,.ad-card,.stat-card,.empty-state){border:1px solid var(--shop-outline)!important;border-radius:18px;box-shadow:0 0 15px var(--shop-glow)}
+.app-shell.store-scene .shop-action-row{gap:12px;flex-wrap:wrap}
+.app-shell.store-scene .shop-action-row button{min-height:44px;padding:12px 16px;white-space:normal;line-height:1.5}
+.app-shell.store-scene .shop-action-row .primary-button{background:color-mix(in srgb,var(--shop-neon) 30%,#171821)!important;color:#fff!important}
+.app-shell.store-scene .shop-action-row button:hover{border-color:var(--shop-neon)!important;box-shadow:0 0 24px var(--shop-glow)}
+.app-shell.store-scene .temporary-stats-note{padding:15px 18px;border:1px solid var(--shop-outline)!important;border-radius:16px;line-height:1.7;box-shadow:0 0 12px var(--shop-glow)}
+@media(max-width:640px){.app-shell .faq-workspace :is(.workspace-toolbar,.page-title){padding:18px;border-radius:20px}.app-shell .faq-workspace .faq-topic{padding:20px}.app-shell .faq-workspace .faq-item summary,.app-shell .faq-workspace .faq-item p{padding:17px}.app-shell.store-scene .shop-catalog-backdrop{padding:16px;border-radius:20px}.app-shell.store-scene .shop-action-row button{flex:1 1 160px}}
+
+.app-shell .content .faq-workspace :is(.faq-item,.faq-topic){border-color:var(--faq-outline)!important}
+.app-shell .content .faq-workspace .faq-item summary{margin:0!important;border-radius:19px}
+.app-shell .content .faq-workspace .faq-item[open] summary{border-radius:19px 19px 0 0}
