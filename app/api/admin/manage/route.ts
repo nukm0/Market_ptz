@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVerifiedSession, sendTelegramMessage, supabaseRequest } from "../../../../lib/telegram-auth";
+import { getVerifiedSession, sendTelegramMessage, supabaseConfig, supabaseRequest } from "../../../../lib/telegram-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,13 @@ export async function POST(request: NextRequest) {
     const staff = moderator || session.role === "Стажёр";
     let result: unknown = null;
 
-    if (action === "delete_own_listing") {
+    if (action === "analytics") {
+      if (!staff) return NextResponse.json({error:"Статистика доступна только администрации."},{status:403});
+      const days=Number(payload.days);
+      if (![7,30,90].includes(days)) return NextResponse.json({error:"Выберите период 7, 30 или 90 дней."},{status:400});
+      result=await supabaseRequest("rpc/marketplace_analytics",{method:"POST",body:JSON.stringify({p_days:days})});
+      return NextResponse.json({ok:true,result},{headers:{"Cache-Control":"no-store"}});
+    } else if (action === "delete_own_listing") {
       const listingId = String(payload.listingId ?? "").trim();
       if (!/^\d{1,20}$/.test(listingId)) return NextResponse.json({error:"Некорректный ID объявления."},{status:400});
       const ownRows = await supabaseRequest(`marketplace_listings?listing_id=eq.${encodeURIComponent(listingId)}&select=listing_id,seller_telegram_id,listing_group,title&limit=1`) as any[];
@@ -145,6 +151,11 @@ export async function POST(request: NextRequest) {
       const title = String(payload.title || "Объявление администрации").trim().slice(0,120);
       const message = String(payload.message || "").trim().slice(0,3500);
       const link = String(payload.url || "").trim();
+      const imageUrl=String(payload.imageUrl||"").trim();
+      if(imageUrl){
+        const storage=supabaseConfig().url;
+        if(!imageUrl.startsWith(`${storage}/storage/v1/object/public/marketplace-media/`)) return NextResponse.json({error:"Загрузите фото через выбор файла."},{status:400});
+      }
       if (!message) return NextResponse.json({error:"Введите текст уведомления."},{status:400});
       if (link) { try { const parsed=new URL(link); if (!['https:','http:'].includes(parsed.protocol)) throw new Error(); } catch { return NextResponse.json({error:"Ссылка должна быть полным URL http:// или https://."},{status:400}); } }
       const users = await supabaseRequest("marketplace_users?select=telegram_id,bot_started_at&limit=10000") as any[];
@@ -152,12 +163,12 @@ export async function POST(request: NextRequest) {
       const bodyText = `${message}${link?`\n\n${link}`:""}`;
       for (let i=0;i<validUsers.length;i+=200) {
         const batch=validUsers.slice(i,i+200);
-        await Promise.all(batch.map((u:any)=>supabaseRequest("marketplace_notifications",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:Number(u.telegram_id),title,message:bodyText,read:false,action_url:link||null})}).catch(()=>null)));
+        await Promise.all(batch.map((u:any)=>supabaseRequest("marketplace_notifications",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({telegram_id:Number(u.telegram_id),title,message:bodyText,read:false,action_url:link||null,image_url:imageUrl||null})}).catch(()=>null)));
       }
       const botUsers=validUsers.filter((u:any)=>u.bot_started_at);
       let sent=0;
       for(let i=0;i<botUsers.length;i+=20) {
-        const outcomes=await Promise.all(botUsers.slice(i,i+20).map((u:any)=>sendTelegramMessage(Number(u.telegram_id),`📣 ${title}\n\n${bodyText}`).catch(()=>false)));
+        const outcomes=await Promise.all(botUsers.slice(i,i+20).map((u:any)=>sendTelegramMessage(Number(u.telegram_id),`📣 ${title}\n\n${message}`,link?[[{text:"Открыть в Telegram",url:link}]]:undefined,imageUrl||undefined).catch(()=>false)));
         sent+=outcomes.filter(Boolean).length;
       }
       result={registered:validUsers.length,botStarted:botUsers.length,botSent:sent};

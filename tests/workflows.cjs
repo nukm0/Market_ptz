@@ -6,10 +6,10 @@ const path = require('node:path');
 const ts = require('typescript');
 const base = path.resolve(__dirname,'..');
 const links = { APP_URL:'https://market-ptz.vercel.app',BOT_USERNAME:'baraxolka_ptzbot',GROUP_URL:'https://t.me/marketplace_Support_info',miniAppWebUrl:(kind='page',id='home')=>`https://market-ptz.vercel.app/?${kind}=${id}`,telegramMiniAppLink:(kind='page',id='home')=>`https://t.me/baraxolka_ptzbot?startapp=${kind}_${id}`,telegramNotificationLink:value=>value };
-function load(file,{role='Владелец',userId=998579758,db=async()=>[],fetch=async()=>new Response(JSON.stringify({ok:true,result:{}})),session}={}){
+function load(file,{role='Владелец',userId=998579758,db=async()=>[],fetch=async()=>new Response(JSON.stringify({ok:true,result:{}})),send=async()=>true,session}={}){
  const code=ts.transpileModule(fs.readFileSync(path.join(base,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  const module={exports:{}};
- const auth={getVerifiedSession:async()=>session||{user:{id:userId,username:'test_moderator',first_name:'Test'},role,isOwner:userId===998579758,shop:null},supabaseRequest:db,sendTelegramMessage:async()=>true,sendTelegramPost:async()=>true};
+ const auth={getVerifiedSession:async()=>session||{user:{id:userId,username:'test_moderator',first_name:'Test'},role,isOwner:userId===998579758,shop:null},supabaseRequest:db,supabaseConfig:()=>({url:"https://fixture.supabase.co",key:"fixture"}),sendTelegramMessage:send,sendTelegramPost:async()=>true};
  vm.runInNewContext(code,{exports:module.exports,module,require:name=>name==='next/server'?{NextResponse:{json:(data,init={})=>new Response(JSON.stringify(data),{status:init.status||200,headers:init.headers})}}:name.includes('telegram-links')?links:auth,URL,URLSearchParams,Response,Buffer,fetch,console,process:{env:{TELEGRAM_BOT_TOKEN:'test-fixture',TELEGRAM_WEBHOOK_SECRET:'test-secret'}}});
  return module.exports;
 }
@@ -90,4 +90,30 @@ test('every inline menu callback answers the click and sends its section',async(
    assert.ok(calls.some(c=>c.method==='answerCallbackQuery'),data);
    assert.ok(calls.some(c=>c.method==='sendPhoto'||c.method==='sendMessage'),data);
  }
+});
+
+
+test('analytics requires staff and does not count its own reads as staff work',async()=>{
+ const denied=load('app/api/admin/manage/route.ts',{role:'Участник',userId:123});assert.equal((await denied.POST(post({action:'analytics',payload:{days:30}}))).status,403);
+ const queries=[];const api=load('app/api/admin/manage/route.ts',{db:async(url,init)=>{queries.push(url);assert.equal(JSON.parse(init.body).p_days,30);return {series:[],totals:{}};}});
+ assert.equal((await api.POST(post({action:'analytics',payload:{days:30}}))).status,200);assert.deepEqual(queries,['rpc/marketplace_analytics']);
+ assert.equal((await api.POST(post({action:'analytics',payload:{days:100000}}))).status,400);
+});
+
+test('broadcast stores uploaded photo and passes it to Telegram delivery',async()=>{
+ const writes=[],sends=[];const image='https://fixture.supabase.co/storage/v1/object/public/marketplace-media/notifications/test.jpg';
+ const api=load('app/api/admin/manage/route.ts',{db:async(url,init)=>{if(url.startsWith('marketplace_users?'))return [{telegram_id:123,bot_started_at:'2026-10-16'}];if(init?.body)writes.push({url,body:JSON.parse(init.body)});return [];},send:async(...args)=>{sends.push(args);return true;}});
+ assert.equal((await api.POST(post({action:'broadcast',payload:{title:'News',message:'Hello',imageUrl:image}}))).status,200);
+ assert.equal(writes.find(w=>w.url==='marketplace_notifications').body.image_url,image);assert.equal(sends[0][3],image);
+ assert.equal((await api.POST(post({action:'broadcast',payload:{message:'Hello',imageUrl:'https://external.example/photo.jpg'}}))).status,400);
+});
+
+test('Telegram photo delivery preserves long notification text and Mini App button',async()=>{
+ const calls=[],module={exports:{}};
+ const code=ts.transpileModule(fs.readFileSync(path.join(base,'lib/telegram-auth.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+ vm.runInNewContext(code,{module,exports:module.exports,require:n=>n==='node:crypto'?require(n):n.includes('telegram-links')?links:{supabaseConfig:()=>({}),supabaseRequest:async()=>[]},URL,Buffer,process:{env:{TELEGRAM_BOT_TOKEN:'fixture-token'}},fetch:async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return new Response(JSON.stringify({ok:true}));}});
+ const text='Д'.repeat(1400),photo='https://fixture.supabase.co/image.jpg';
+ assert.equal(await module.exports.sendTelegramMessage(123,text,[[{text:'Open',url:links.APP_URL+'/?page=profile'}]],photo),true);
+ assert.ok(calls[0].url.endsWith('/sendPhoto'));assert.equal(calls[0].body.photo,photo);assert.equal(calls[0].body.caption+calls[1].body.text,text);
+ assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].web_app.url,links.APP_URL+'/?page=profile');
 });

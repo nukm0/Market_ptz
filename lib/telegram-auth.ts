@@ -42,17 +42,20 @@ export function verifyTelegramInitData(initData: string) {
   return user;
 }
 
-export async function sendTelegramMessage(telegramId: number, message: string, inlineKeyboard?: Array<Array<{text:string;url:string}>>) {
+export async function sendTelegramMessage(telegramId: number, message: string, inlineKeyboard?: Array<Array<{text:string;url:string}>>, imageUrl?:string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !Number.isSafeInteger(telegramId) || telegramId <= 0) return false;
   try {
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const response = await fetch(`https://api.telegram.org/bot${token}/${imageUrl?"sendPhoto":"sendMessage"}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: telegramId, text: message, disable_web_page_preview: true, ...(inlineKeyboard?.length ? { reply_markup: { inline_keyboard: inlineKeyboard.map(row=>row.map(button=>{try{const url=new URL(button.url);return url.origin===APP_URL?{text:button.text,web_app:{url:button.url}}:button;}catch{return button;}})) } } : {}) }),
+      body: JSON.stringify({ chat_id: telegramId, ...(imageUrl?{photo:imageUrl,caption:message.slice(0,1000)}:{text:message,disable_web_page_preview:true}), ...(inlineKeyboard?.length ? { reply_markup: { inline_keyboard: inlineKeyboard.map(row=>row.map(button=>{try{const url=new URL(button.url);return url.origin===APP_URL?{text:button.text,web_app:{url:button.url}}:button;}catch{return button;}})) } } : {}) }),
       cache: "no-store",
     });
-    return response.ok;
+    const result=await response.json();
+    if(!response.ok||!result.ok)return false;
+    if(imageUrl&&message.length>1000)return sendTelegramMessage(telegramId,message.slice(1000),inlineKeyboard);
+    return true;
   } catch {
     return false;
   }
