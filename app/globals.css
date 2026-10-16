@@ -355,3 +355,6 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none}button,a,input,tex
 @media(max-width:640px){.growth-heading{align-items:flex-start}.growth-heading h3{font-size:20px}.growth-kpis,.growth-comparisons{grid-template-columns:repeat(2,minmax(0,1fr))}.growth-charts{grid-template-columns:minmax(0,1fr)}.growth-heading .secondary-button{font-size:0;gap:0}.growth-heading .secondary-button svg{width:18px}.growth-staff{font-size:12px}.growth-comparisons article{padding:12px}}
 
 .growth-workspace{--surface:var(--viewer-panel,#111522);--text:var(--viewer-text,#f2f4ff);--muted:var(--viewer-muted,#929bb8);--purple:var(--viewer-accent,#a855f7)}
+
+/* FAQ participates in the same banner palette as the home and shop slides. */
+.hero.banner-pink,.stores-feature-banner.banner-pink{background:radial-gradient(ellipse at 85% 20%,rgba(232,121,249,.28),transparent 48%),linear-gradient(115deg,#24102f 0%,#831843 55%,#c026d3 100%);color:#fff}
