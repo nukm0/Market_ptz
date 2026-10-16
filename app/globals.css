@@ -446,6 +446,6 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none}button,a,input,tex
 .app-shell.store-scene .temporary-stats-note{padding:15px 18px;border:1px solid var(--shop-outline)!important;border-radius:16px;line-height:1.7;box-shadow:0 0 12px var(--shop-glow)}
 @media(max-width:640px){.app-shell .faq-workspace :is(.workspace-toolbar,.page-title){padding:18px;border-radius:20px}.app-shell .faq-workspace .faq-topic{padding:20px}.app-shell .faq-workspace .faq-item summary,.app-shell .faq-workspace .faq-item p{padding:17px}.app-shell.store-scene .shop-catalog-backdrop{padding:16px;border-radius:20px}.app-shell.store-scene .shop-action-row button{flex:1 1 160px}}
 
-.app-shell .content .faq-workspace :is(.faq-item,.faq-topic){border-color:var(--faq-outline)!important}
-.app-shell .content .faq-workspace .faq-item summary{margin:0!important;border-radius:19px}
-.app-shell .content .faq-workspace .faq-item[open] summary{border-radius:19px 19px 0 0}
+.app-shell.app-shell:not(.store-scene):not(.public-profile-scene) .content .faq-workspace :is(.faq-item,.faq-topic){border-color:var(--faq-outline)!important}
+.app-shell.app-shell:not(.store-scene):not(.public-profile-scene) .content .faq-workspace .faq-item summary{margin:0!important;border-radius:19px}
+.app-shell.app-shell:not(.store-scene):not(.public-profile-scene) .content .faq-workspace .faq-item[open] summary{border-radius:19px 19px 0 0}
