@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
         const users = await supabaseRequest(`marketplace_users?telegram_id=eq.${review.target_telegram_id}&select=username,first_name&limit=1`) as any[];
         targetUsername = users?.[0]?.username || String(review.target_telegram_id);
       }
-      return NextResponse.json({review,targetUsername,shop},{headers:{"Cache-Control":"no-store"}});
+      return NextResponse.json({review:{id:review.id,stars:review.stars,description:review.description,created_at:review.created_at,target_type:review.target_type,target_telegram_id:review.target_telegram_id,target_shop_id:review.target_shop_id},targetUsername,shop},{headers:{"Cache-Control":"no-store"}});
     }
     const type = request.nextUrl.searchParams.get("type") === "shop" ? "shop" : "profile";
     let target = request.nextUrl.searchParams.get("target") || String(session?.user.id || "0");

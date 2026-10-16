@@ -156,3 +156,5 @@ export function getVerifiedSession(initData:string,options:{allowBanned?:boolean
  if(sessions.size>200)sessions.clear();
  const value=loadVerifiedSession(initData,options).catch(error=>{sessions.delete(key);throw error;});sessions.set(key,{until:now+3000,value});return value;
 }
+
+export function invalidateVerifiedSession(initData:string){for(const key of Array.from(sessions.keys()))if(key.endsWith(":"+initData))sessions.delete(key);}

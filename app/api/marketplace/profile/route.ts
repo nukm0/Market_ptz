@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVerifiedSession, supabaseRequest } from "../../../../lib/telegram-auth";
+import { getVerifiedSession, invalidateVerifiedSession, supabaseRequest } from "../../../../lib/telegram-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
     const result = await supabaseRequest(`marketplace_users?telegram_id=eq.${session.user.id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(patch) }) as any[];
+    invalidateVerifiedSession(String(body.initData||""));
     return NextResponse.json({ ok: true, description: result?.[0]?.profile_description ?? description, profileSettings: { personalBackgroundUrl:result?.[0]?.profile_personal_background_url||"",updatedAt:result?.[0]?.profile_updated_at, coverUrl: result?.[0]?.profile_cover_url ?? patch.profile_cover_url ?? "", backgroundUrl: result?.[0]?.profile_background_url ?? patch.profile_background_url ?? "", textColor: result?.[0]?.profile_text_color ?? textColor, themeKey: result?.[0]?.profile_theme_key ?? themeKey } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Request failed";

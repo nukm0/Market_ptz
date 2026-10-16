@@ -11,7 +11,7 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(base,'lib/bot-gu
 function load(file,{role='Владелец',userId=998579758,db=async()=>[],fetch=async()=>new Response(JSON.stringify({ok:true,result:{}})),send=async()=>true,session}={}){
  const code=ts.transpileModule(fs.readFileSync(path.join(base,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  const module={exports:{}};
- const auth={getVerifiedSession:async()=>session||{user:{id:userId,username:'test_moderator',first_name:'Test'},role,isOwner:userId===998579758,shop:null},supabaseRequest:db,supabaseConfig:()=>({url:"https://fixture.supabase.co",key:"fixture"}),sendTelegramMessage:send,sendTelegramPost:async()=>true};
+ const auth={invalidateVerifiedSession:()=>{},getVerifiedSession:async()=>session||{user:{id:userId,username:'test_moderator',first_name:'Test'},role,isOwner:userId===998579758,shop:null},supabaseRequest:db,supabaseConfig:()=>({url:"https://fixture.supabase.co",key:"fixture"}),sendTelegramMessage:send,sendTelegramPost:async()=>true};
  vm.runInNewContext(code,{exports:module.exports,module,require:name=>name==='next/server'?{NextResponse:{json:(data,init={})=>new Response(JSON.stringify(data),{status:init.status||200,headers:init.headers})}}:name.includes('telegram-links')?links:name.includes('bot-guides')?guideModule.exports:auth,URL,URLSearchParams,Response,Buffer,fetch,console,process:{env:{TELEGRAM_BOT_TOKEN:'test-fixture',TELEGRAM_WEBHOOK_SECRET:'test-secret'}}});
  return module.exports;
 }
@@ -183,4 +183,10 @@ test('appeals cannot attach another user restriction or omit evidence',async()=>
 test('deputy owner sees all role-specific FAQ entries',async()=>{
  const api=load('app/api/marketplace/config/route.ts',{role:'Заместитель владельца',userId:222,db:async url=>url.startsWith('marketplace_faq_entries?')?[{id:'mod',visible_roles:['Модератор']},{id:'owner',visible_roles:['Владелец']}]:[]});
  const request=get();request.headers.get=()=> 'signed';const data=await(await api.GET(request)).json();assert.equal(data.faq.length,2);
+});
+
+test('profile saves replace account appearance with the latest submitted settings',async()=>{
+ let row={};const api=load('app/api/marketplace/profile/route.ts',{userId:222,db:async(url,init)=>{row={...row,...JSON.parse(init.body)};return [row];}});
+ for(const color of ['banner-blue','banner-pink']){const r=await api.POST(post({initData:'signed',themeKey:color,personalBackgroundUrl:'https://example.com/'+color,coverUrl:'https://example.com/cover',description:color}));assert.equal(r.status,200);}
+ assert.equal(row.profile_theme_key,'banner-pink');assert.equal(row.profile_personal_background_url,'https://example.com/banner-pink');assert.equal(row.profile_description,'banner-pink');assert.ok(row.profile_updated_at);
 });
