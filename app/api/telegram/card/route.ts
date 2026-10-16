@@ -6,8 +6,8 @@ export const runtime = "edge";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const [regular,bold]=await Promise.all([
-    fetch(new URL("./fonts/PT_Sans-Web-Regular.ttf",import.meta.url)).then(r=>r.arrayBuffer()),
-    fetch(new URL("./fonts/PT_Sans-Web-Bold.ttf",import.meta.url)).then(r=>r.arrayBuffer()),
+    fetch(new URL("/fonts/PT_Sans-Web-Regular.ttf",request.url)).then(r=>r.arrayBuffer()),
+    fetch(new URL("/fonts/PT_Sans-Web-Bold.ttf",request.url)).then(r=>r.arrayBuffer()),
   ]);
   const params = new URL(request.url).searchParams;
   const ad = params.get("ad");
