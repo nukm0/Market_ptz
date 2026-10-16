@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     let result: unknown = null;
 
     if (action === "analytics") {
-      if (!staff) return NextResponse.json({error:"Статистика доступна только администрации."},{status:403});
+      if (!owner) return NextResponse.json({error:"Общая статистика доступна только владельцу платформы."},{status:403});
       const days=Number(payload.days);
       if (![7,30,90].includes(days)) return NextResponse.json({error:"Выберите период 7, 30 или 90 дней."},{status:400});
       result=await supabaseRequest("rpc/marketplace_analytics",{method:"POST",body:JSON.stringify({p_days:days})});

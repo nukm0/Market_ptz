@@ -93,8 +93,8 @@ test('every inline menu callback answers the click and sends its section',async(
 });
 
 
-test('analytics requires staff and does not count its own reads as staff work',async()=>{
- const denied=load('app/api/admin/manage/route.ts',{role:'Участник',userId:123});assert.equal((await denied.POST(post({action:'analytics',payload:{days:30}}))).status,403);
+test('analytics is owner-only and does not count its own reads as staff work',async()=>{
+ for(const role of ['Участник','Магазин','Стажёр','Модератор','Администратор','Заместитель владельца']){const denied=load('app/api/admin/manage/route.ts',{role,userId:123});assert.equal((await denied.POST(post({action:'analytics',payload:{days:30}}))).status,403,role);}
  const queries=[];const api=load('app/api/admin/manage/route.ts',{db:async(url,init)=>{queries.push(url);assert.equal(JSON.parse(init.body).p_days,30);return {series:[],totals:{}};}});
  assert.equal((await api.POST(post({action:'analytics',payload:{days:30}}))).status,200);assert.deepEqual(queries,['rpc/marketplace_analytics']);
  assert.equal((await api.POST(post({action:'analytics',payload:{days:100000}}))).status,400);
