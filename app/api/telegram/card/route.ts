@@ -33,6 +33,7 @@ export async function GET(request: Request) {
     const candidate=row.photo_urls?.[0];
     try{if(candidate&&new URL(candidate).origin===new URL(supabaseConfig().url).origin)photo=candidate;}catch{}
   }
+  if(kind==="reminder"){subtitle=title;title="Товар ещё продаётся?";tag="ПРОВЕРКА АКТУАЛЬНОСТИ";}
   return new ImageResponse(h("div",{style:{width:"100%",height:"100%",display:"flex",background:"linear-gradient(125deg,#090a10,#21172f)",color:"white",padding:60,fontFamily:"PT Sans"}},
     h("div",{style:{display:"flex",flexDirection:"column",justifyContent:"space-between",width:photo||guide||kind==="help"||kind==="cooperation"?"64%":"100%"}},
       h("div",{style:{display:"flex",fontSize:24,color:accent,letterSpacing:3}},tag),

@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
     const seller = String(body?.seller ?? "").trim().slice(0,120);
     if (!listingId) return NextResponse.json({ error: "Не указан объект просмотра." }, { status: 400 });
     await supabaseRequest("marketplace_listing_views?on_conflict=listing_id,viewer_telegram_id", { method:"POST", headers:{Prefer:"resolution=merge-duplicates,return=minimal"}, body:JSON.stringify({ listing_id:listingId, seller_username:seller || null, viewer_telegram_id:session.user.id }) });
+    await supabaseRequest("rpc/marketplace_track_listing",{method:"POST",body:JSON.stringify({p_actor:session.user.id,p_listing:listingId,p_kind:"view"})}).catch(()=>null);
     let views = 0;
     try {
       const counts = await supabaseRequest(`marketplace_listing_view_counts?listing_id=eq.${encodeURIComponent(listingId)}&select=view_count&limit=1`) as any[];

@@ -1,0 +1,4 @@
+import {NextRequest,NextResponse} from "next/server";
+import {getVerifiedSession,supabaseRequest} from "../../../../lib/telegram-auth";
+export const dynamic="force-dynamic";
+export async function POST(r:NextRequest){try{const b=await r.json(),s=await getVerifiedSession(String(b.initData||""));if(typeof b.active!=="boolean"||!/^\d{1,20}$/.test(String(b.listingId)))return NextResponse.json({error:"Неверное объявление."},{status:400});await supabaseRequest("rpc/marketplace_listing_availability",{method:"POST",body:JSON.stringify({p_user:s.user.id,p_listing:String(b.listingId),p_active:b.active})});return NextResponse.json({ok:true,status:b.active?"active":"withdrawn"});}catch{return NextResponse.json({error:"Не удалось изменить статус. Управлять объявлением может только его владелец."},{status:400});}}

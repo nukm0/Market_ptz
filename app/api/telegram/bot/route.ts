@@ -1,3 +1,4 @@
+import {handleBotPublishing} from "../../../../lib/bot-publishing";
 import { NextRequest, NextResponse } from "next/server";
 import { APP_URL, BOT_USERNAME, GROUP_URL, miniAppWebUrl } from "../../../../lib/telegram-links";
 import { sendTelegramMessage, supabaseRequest } from "../../../../lib/telegram-auth";
@@ -14,7 +15,7 @@ async function callTelegram(method:string, payload:Record<string,unknown>) {
 const keyboard = {inline_keyboard:[
   [{text:"Открыть Marketplace",web_app:{url:APP_URL}}],
   [{text:"Магазины",callback_data:"shops"},{text:"Мои подписки",callback_data:"subscriptions"}],
-  [{text:"Мой профиль",web_app:{url:miniAppWebUrl("page","profile")}},{text:"Опубликовать",web_app:{url:miniAppWebUrl("page","publish")}}],
+  [{text:"Мой профиль",web_app:{url:miniAppWebUrl("page","profile")}},{text:"Опубликовать",callback_data:"pub_start"}],
   [{text:"Рефералы",callback_data:"ref"},{text:"Статистика",callback_data:"stats"}],
   [{text:"Команда",callback_data:"moderators"},{text:"Помощь",callback_data:"help"}],
   [{text:"Сотрудничество",callback_data:"cooperation"}],
@@ -76,6 +77,8 @@ export async function POST(request:NextRequest) {
         if(referrer?.length) { body.referred_by=ref; body.referral_attributed_at=new Date().toISOString(); }
       }
       await supabaseRequest("marketplace_users?on_conflict=telegram_id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(body)});
+      if(/^\/start(?:@\w+)?\s+publish$/i.test(rawText)){await handleBotPublishing({update,user,message,callback,call:callTelegram,begin:true});return NextResponse.json({ok:true});}
+      await supabaseRequest(`marketplace_bot_drafts?telegram_id=eq.${userId}`,{method:"DELETE"});
       const botName=(process.env.TELEGRAM_BOT_USERNAME||BOT_USERNAME).replace(/^@/,"");
       const referral=botName?`https://t.me/${botName}?start=${userId}`:"Ссылка появится после настройки TELEGRAM_BOT_USERNAME.";
       if(startTarget){await send(chatId,"Открыть выбранный раздел внутри Telegram:",{inline_keyboard:[[{text:"Открыть Mini App",web_app:{url:miniAppWebUrl(startTarget[1].toLowerCase(),startTarget[2])}}],[{text:"Главное меню",callback_data:"menu"}]]});return NextResponse.json({ok:true});}
@@ -83,6 +86,9 @@ export async function POST(request:NextRequest) {
       await send(chatId,`Marketplace · Главное меню\n\nПокупай, продавай и находи своё.\n\n▫️ Объявления и магазины\n▫️ Подписки и уведомления\n▫️ Отзывы и поддержка\n\nТвоя ссылка для приглашений:\n${referral}\n\nВыбери раздел кнопками ниже ↓`,keyboard,"menu");
       return NextResponse.json({ok:true});
     }
+    const reminder=String(callback?.data||"").match(/^rem:(keep|stop):([0-9]{1,20})$/);
+    if(reminder){await supabaseRequest("rpc/marketplace_listing_availability",{method:"POST",body:JSON.stringify({p_user:userId,p_listing:reminder[2],p_active:reminder[1]==="keep"})});await callTelegram("sendMessage",{chat_id:chatId,text:reminder[1]==="keep"?"Актуальность подтверждена ✓ Следующее напоминание — через 7 дней.":"Объявление снято с продажи. Оно сохранено в вашем личном кабинете.",reply_markup:{inline_keyboard:[[{text:"Открыть личный кабинет",web_app:{url:miniAppWebUrl("page","profile")}}]]}});return NextResponse.json({ok:true});}
+    if(await handleBotPublishing({update,user,message,callback,call:callTelegram}))return NextResponse.json({ok:true});
     if(text==="/cancel"||text==="/cancel_contact"){
       await supabaseRequest(`marketplace_users?telegram_id=eq.${userId}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({bot_pending_action:null})});
       await send(chatId,"Обращение отменено\n\nВыбери другой вариант сотрудничества или вернись в главное меню.",cooperationKeyboard,"cooperation");return NextResponse.json({ok:true});
