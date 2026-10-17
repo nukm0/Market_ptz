@@ -64,8 +64,8 @@ export async function POST(request: NextRequest) {
     if (body?.themeKey === "banner-gray" && !session.isOwner) {
       return NextResponse.json({ error: "Серый градиент доступен только владельцу платформы." }, { status: 403 });
     }
-    const themeKey = ["banner-purple", "banner-blue", "banner-pink", "banner-black", ...(session.isOwner ? ["banner-gray"] : [])].includes(String(body?.themeKey)) ? String(body.themeKey) : "banner-purple";
-    const textColor = themeKey !== "banner-black" && body?.textColor === "#000000" ? "#000000" : "#ffffff";
+    const themeKey = ["banner-purple", "banner-blue", "banner-pink", "banner-crimson", "banner-black", ...(session.isOwner ? ["banner-gray"] : [])].includes(String(body?.themeKey)) ? String(body.themeKey) : "banner-purple";
+    const textColor = !["banner-black","banner-crimson"].includes(themeKey) && body?.textColor === "#000000" ? "#000000" : "#ffffff";
     const patch = {
       profile_personal_background_url:safeUrl(body?.personalBackgroundUrl),
       profile_updated_at:new Date().toISOString(),

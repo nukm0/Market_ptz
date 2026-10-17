@@ -8,9 +8,9 @@ export async function POST(request: NextRequest) {
     const session = await getVerifiedSession(String(body?.initData || ""));
     const shop = session.shop;
     if (!shop?.id || Number(shop.owner_telegram_id) !== session.user.id) return NextResponse.json({error:"Только подтверждённый владелец магазина может менять оформление."},{status:403});
-    const allowedThemes = ["banner-purple","banner-blue","banner-pink","banner-black"];
+    const allowedThemes = ["banner-purple","banner-blue","banner-pink","banner-crimson","banner-black"];
     const themeKey = allowedThemes.includes(String(body.themeKey)) ? String(body.themeKey) : "banner-purple";
-    const logoTextColor = themeKey !== "banner-black" && body.logoTextColor === "#000000" ? "#000000" : "#ffffff";
+    const logoTextColor = !["banner-black","banner-crimson"].includes(themeKey) && body.logoTextColor === "#000000" ? "#000000" : "#ffffff";
     const optionalHttps = (value: unknown) => {
       if (!value) return null;
       const text = String(value).trim();
