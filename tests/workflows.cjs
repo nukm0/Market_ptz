@@ -12,7 +12,7 @@ function load(file,{role='Владелец',userId=998579758,db=async()=>[],fetc
  const code=ts.transpileModule(fs.readFileSync(path.join(base,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  const module={exports:{}};
  const auth={invalidateVerifiedSession:()=>{},getVerifiedSession:async()=>session||{user:{id:userId,username:'test_moderator',first_name:'Test'},role,isOwner:userId===998579758,shop:null},supabaseRequest:db,supabaseConfig:()=>({url:"https://fixture.supabase.co",key:"fixture"}),sendTelegramMessage:send,sendTelegramPost:async()=>true};
- vm.runInNewContext(code,{exports:module.exports,module,require:name=>name==='next/server'?{NextResponse:{json:(data,init={})=>new Response(JSON.stringify(data),{status:init.status||200,headers:init.headers})}}:name.includes('telegram-links')?links:name.includes('bot-guides')?guideModule.exports:name.includes('bot-publishing')?{handleBotPublishing:async()=>false}:auth,URL,URLSearchParams,Response,Buffer,fetch,console,process:{env:{TELEGRAM_BOT_TOKEN:'test-fixture',TELEGRAM_WEBHOOK_SECRET:'test-secret'}}});
+ vm.runInNewContext(code,{exports:module.exports,module,require:name=>name==='next/server'?{NextResponse:{json:(data,init={})=>new Response(JSON.stringify(data),{status:init.status||200,headers:init.headers})}}:name.includes('telegram-links')?links:name.includes('bot-guides')?guideModule.exports:name.includes('telegram-identity')?{refreshTelegramIdentity:async user=>user}:name.includes('bot-publishing')?{handleBotPublishing:async()=>false}:auth,URL,URLSearchParams,Response,Buffer,AbortSignal,fetch,console,process:{env:{TELEGRAM_BOT_TOKEN:'test-fixture',TELEGRAM_WEBHOOK_SECRET:'test-secret'}}});
  return module.exports;
 }
 const post=(body)=>({json:async()=>body,headers:{get:()=> 'test-secret'}});
@@ -216,4 +216,25 @@ test('reminder sends inline confirmation and Telegram Mini App button; failed se
 });
 test('bot publication copies Telegram photos into storage and confirms exact listing in Mini App',async()=>{
  const id='11111111-1111-1111-1111-111111111111';let published,uploads=0;const sent=[];const helper=load('lib/bot-publishing.ts',{db:async(url,init)=>{if(url.includes('marketplace_bot_drafts?'))return [{id,revision:5,stage:'review',data:{photos:['file1']}}];if(url==='rpc/marketplace_bot_publish'){published=JSON.parse(init.body);return {listing_id:'1234567890000',seller_telegram_id:12345,title:'Item',price:20};}return [];},fetch:async url=>{if(url.includes('/file/bot'))return new Response(new Uint8Array([255,216,255,217]));uploads++;return new Response('{}');}});await helper.handleBotPublishing({update:{update_id:92},user:{id:12345},message:{chat:{id:12345,type:'private'}},callback:{data:'pub:'+id+':confirm:5'},call:async(method,body)=>{if(method==='getFile')return {file_path:'photos/file.jpg',file_size:4};sent.push(body);return {};}});assert.equal(uploads,1);assert.equal(published.p_user,12345);assert.equal(published.p_photos.length,1);assert.ok(published.p_photos[0].startsWith('https://fixture.supabase.co/storage/v1/object/public/'));assert.equal(sent[0].reply_markup.inline_keyboard[0][0].web_app.url,'https://market-ptz.vercel.app/?ad=1234567890000');assert.ok(sent[0].text.includes('опубликовано'));
+});
+
+test('profile black text is retained for monochrome and crimson themes',async()=>{
+ for(const themeKey of ['banner-black','banner-crimson']){let patch;const api=load('app/api/marketplace/profile/route.ts',{userId:12345,role:'Участник',db:async(url,init)=>{patch=JSON.parse(init.body);return [patch];}});const result=await api.POST(post({initData:'signed',themeKey,textColor:'#000000',description:'Profile'}));assert.equal(result.status,200);assert.equal(patch.profile_text_color,'#000000');assert.equal(patch.profile_theme_key,themeKey);}
+});
+test('public account lookup supports usernames and IDs without requesting private verification fields',async()=>{
+ let query;const api=load('app/api/marketplace/accounts/route.ts',{db:async url=>{query=url;return [{telegram_id:12345,username:'example_user'}];}});assert.equal((await api.GET(get('q=%40example_user'))).status,200);assert.ok(query.includes('username=ilike.'));assert.ok(!query.includes('phone'));assert.ok(!query.includes('verified_full_name'));assert.equal((await api.GET(get('q=12345'))).status,200);assert.ok(query.includes('telegram_id=eq.12345'));assert.equal((await api.GET(get('q=x'))).status,400);assert.equal((await api.GET(get('q=%25%29%2Cor%3D'))).status,400);
+});
+test('Telegram identity refresh copies current avatar without exposing bot file URL and coalesces calls',async()=>{
+ let calls=0,uploads=0;const api=load('lib/telegram-identity.ts',{fetch:async(url,init)=>{calls++;let result;
+ if(url.endsWith('/getChat'))result={id:12345,first_name:'Current name',username:'current_user'};
+ else if(url.endsWith('/getUserProfilePhotos'))result={total_count:1,photos:[[{file_id:'photo-file',file_unique_id:'photo-unique'}]]};
+ else if(url.endsWith('/getFile'))result={file_path:'photos/avatar.jpg',file_size:4};
+ else if(url.includes('/file/bot'))return new Response(new Uint8Array([255,216,255,217]));
+ else {uploads++;return new Response('{}');}
+ return new Response(JSON.stringify({ok:true,result}));}});
+ const user={id:12345,first_name:'Old name',photo_url:'https://old/avatar.jpg'};const current=await api.refreshTelegramIdentity(user);assert.equal(current.first_name,'Current name');assert.equal(current.username,'current_user');assert.equal(uploads,1);assert.ok(current.photo_url.includes('/telegram-avatars/12345/photo-unique.jpg'));assert.ok(!current.photo_url.includes('test-fixture'));const count=calls;await api.refreshTelegramIdentity(user);assert.equal(calls,count);
+});
+test('Telegram avatar removal is reflected; API outages preserve last valid avatar',async()=>{
+ const removed=load('lib/telegram-identity.ts',{fetch:async url=>new Response(JSON.stringify({ok:true,result:url.endsWith('/getChat')?{id:12345,first_name:'Name'}:{total_count:0,photos:[]}}))});assert.equal((await removed.refreshTelegramIdentity({id:12345,photo_url:'https://old/avatar.jpg'})).photo_url,undefined);
+ const unavailable=load('lib/telegram-identity.ts',{fetch:async()=>{throw Error('Offline')}});assert.equal((await unavailable.refreshTelegramIdentity({id:12345,photo_url:'https://valid/avatar.jpg'})).photo_url,'https://valid/avatar.jpg');
 });

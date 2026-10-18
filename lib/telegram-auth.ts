@@ -1,3 +1,4 @@
+import {refreshTelegramIdentity} from "./telegram-identity";
 import { supabaseConfig, supabaseRequest } from "./supabase";
 export { supabaseConfig, supabaseRequest } from "./supabase";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -70,13 +71,14 @@ export async function sendTelegramPost(telegramId:number, message:string, listin
 }
 
 async function loadVerifiedSession(initData: string, options: { allowBanned?: boolean } = {}) {
-  const user = verifyTelegramInitData(initData);
+  let user = verifyTelegramInitData(initData);
   const id = String(user.id);
   let role = id === "998579758" ? "Владелец" : "Участник";
   let shop: any = null;
   let ban: any = null;
 
-  const existingUserRows = await supabaseRequest(`marketplace_users?telegram_id=eq.${id}&select=miniapp_started_at&limit=1`) as any[];
+  const existingUserRows = await supabaseRequest(`marketplace_users?telegram_id=eq.${id}&select=miniapp_started_at,photo_url&limit=1`) as any[];
+  user=await refreshTelegramIdentity({...user,...(existingUserRows?.length?{photo_url:existingUserRows[0].photo_url||undefined}:{})});
   const miniappStartedAt = existingUserRows?.[0]?.miniapp_started_at || new Date().toISOString();
   await supabaseRequest("marketplace_users?on_conflict=telegram_id", {
     method: "POST",

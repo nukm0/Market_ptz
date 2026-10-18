@@ -1,3 +1,4 @@
+import {refreshTelegramIdentity} from "../../../../lib/telegram-identity";
 import { NextRequest, NextResponse } from "next/server";
 import { getVerifiedSession, invalidateVerifiedSession, supabaseRequest } from "../../../../lib/telegram-auth";
 export const runtime = "nodejs";
@@ -22,6 +23,10 @@ export async function GET(request: NextRequest) {
     }
     const profile = rows?.[0];
     if (!profile) return NextResponse.json({ error: "Профиль не найден." }, { status: 404 });
+    const fresh=await refreshTelegramIdentity({id:Number(profile.telegram_id),username:profile.username||undefined,first_name:profile.first_name||undefined,last_name:profile.last_name||undefined,photo_url:profile.photo_url||undefined});
+    const identity={username:fresh.username||null,first_name:fresh.first_name||null,last_name:fresh.last_name||null,photo_url:fresh.photo_url||null};
+    if(Object.entries(identity).some(([key,value])=>(profile[key]||null)!==value))await supabaseRequest("marketplace_users?telegram_id=eq."+profile.telegram_id,{method:"PATCH",body:JSON.stringify(identity)}).catch(()=>null);
+    Object.assign(profile,identity);
     const id = Number(profile.telegram_id);
     const [subscriberRows, viewRows] = await Promise.all([
       supabaseRequest(`marketplace_profile_subscription_counts?target_telegram_id=eq.${id}&select=subscriber_count&limit=1`).catch(async () => {
@@ -65,7 +70,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Серый градиент доступен только владельцу платформы." }, { status: 403 });
     }
     const themeKey = ["banner-purple", "banner-blue", "banner-pink", "banner-crimson", "banner-black", ...(session.isOwner ? ["banner-gray"] : [])].includes(String(body?.themeKey)) ? String(body.themeKey) : "banner-purple";
-    const textColor = !["banner-black","banner-crimson"].includes(themeKey) && body?.textColor === "#000000" ? "#000000" : "#ffffff";
+    const textColor = body?.textColor === "#000000" ? "#000000" : "#ffffff";
     const patch = {
       profile_personal_background_url:safeUrl(body?.personalBackgroundUrl),
       profile_updated_at:new Date().toISOString(),
