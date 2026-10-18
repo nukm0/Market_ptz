@@ -128,6 +128,10 @@ export default function Home() {
   const [shopThemeDraft, setShopThemeDraft] = useState({themeKey:"banner-purple",logoTextColor:"#ffffff",backgroundUrl:"",coverUrl:"",description:""});
   const [showShopSettings, setShowShopSettings] = useState(false);
   const [showProfileSettings, setShowProfileSettings] = useState(false);
+  const [profileImageUploading,setProfileImageUploading]=useState(false);
+  const [profileSaving,setProfileSaving]=useState(false);
+  const profileImageBusy=useRef(false);
+  const profileSaveBusy=useRef(false);
   const [profileSettings, setProfileSettings] = useState({coverUrl:"",backgroundUrl:"",textColor:"#ffffff",themeKey:"banner-purple"});
   const [profileSettingsDraft, setProfileSettingsDraft] = useState({coverUrl:"",backgroundUrl:"",textColor:"#ffffff",themeKey:"banner-purple"});
   const [localPlatformBackground, setLocalPlatformBackground] = useState("");
@@ -594,7 +598,18 @@ export default function Home() {
       flash("Настройки магазина сохранены. Они останутся доступны при следующем открытии.");
     } catch (error) { flash(error instanceof Error ? error.message : "Не удалось сохранить настройки магазина."); }
   }
+  async function uploadProfileImage(file:File|undefined,folder:string,onUploaded:(url:string)=>void) {
+    if(!file || profileImageBusy.current || profileSaveBusy.current)return;
+    profileImageBusy.current=true;setProfileImageUploading(true);
+    try { await uploadImageInto(file,folder,onUploaded); }
+    catch { flash("Не удалось загрузить изображение. Попробуйте ещё раз."); }
+    finally {profileImageBusy.current=false;setProfileImageUploading(false);}
+  }
+  function closeProfileSettings() {
+    if(!profileImageBusy.current && !profileSaveBusy.current)setShowProfileSettings(false);
+  }
   async function saveProfileSettings() {
+    if(profileImageBusy.current || profileSaveBusy.current) return;
     profileWriteRef.current++;
     const initData = window.Telegram?.WebApp?.initData;
     if (!initData || !serverAuthenticated) {
@@ -602,6 +617,8 @@ export default function Home() {
       setShowProfileSettings(false);
       return;
     }
+    profileSaveBusy.current=true;
+    setProfileSaving(true);
     try {
       const response = await fetch("/api/marketplace/profile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ initData, description: profileDescriptionDraft, personalBackgroundUrl:localPlatformBackgroundDraft.trim(), ...profileSettingsDraft }), cache: "no-store" });
       const data = await response.json();
@@ -617,6 +634,7 @@ export default function Home() {
       setShowProfileSettings(false);
       flash("Настройки профиля сохранены и будут видны другим пользователям.");
     } catch (error) { flash(error instanceof Error ? error.message : "Не удалось сохранить настройки профиля."); }
+    finally { profileSaveBusy.current=false;setProfileSaving(false); }
   }
 
   async function submitPlatformReview(targetType:"profile"|"shop", target:{username?:string;id?:string;name?:string}, stars:number, description:string) {
@@ -763,7 +781,7 @@ export default function Home() {
   // Personal preferences stay local to the viewer except on another profile/store.
   const sceneTheme = viewingProfile ? publicProfileSettings?.themeKey : viewingShop ? (sceneShop?.listing_theme_key || sceneShop?.theme_key) : profileSettings.themeKey;
   const sceneTextColor = viewingProfile ? publicProfileSettings?.textColor : viewingShop ? sceneShop?.logo_text_color : profileSettings.textColor;
-  const sceneBackground = viewingProfile ? publicProfileSettings?.backgroundUrl : viewingShop ? sceneShop?.background_url : (localPlatformBackground || profileSettings.backgroundUrl);
+  const sceneBackground = viewingProfile ? publicProfileSettings?.backgroundUrl : viewingShop ? sceneShop?.background_url : (tab === "Личный кабинет" ? (profileSettings.backgroundUrl || localPlatformBackground) : (localPlatformBackground || profileSettings.backgroundUrl));
   const sceneLight = sceneTextColor === "#000000";
   const sceneAccent = ({ "banner-purple": "#a78bfa", "banner-blue": "#60a5fa", "banner-pink": "#f472b6", "banner-crimson": "#db1239", "banner-gray": "#aeb6c3", "banner-black": "#f5f5f5" } as Record<string,string>)[sceneTheme || "banner-purple"] || "#a78bfa";
   const viewerAccent = ({ "banner-purple": "#a78bfa", "banner-blue": "#60a5fa", "banner-pink": "#f472b6", "banner-crimson": "#db1239", "banner-gray": "#aeb6c3", "banner-black": "#f5f5f5" } as Record<string,string>)[profileSettings.themeKey] || "#a78bfa";
@@ -998,13 +1016,17 @@ export default function Home() {
         <div className="modal-actions"><button className="secondary-button" onClick={() => setShowShopSettings(false)}>Отмена</button><button className="primary-button" onClick={saveShopSettings}><CheckCircle2 size={16}/> Сохранить настройки</button></div>
       </div></div>}
 
-      {showProfileSettings && <div className="modal-backdrop settings-overlay" onClick={() => setShowProfileSettings(false)}><div className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="profile-settings-title" onClick={e => e.stopPropagation()}>
-        <div className="modal-head"><div><span className="section-overline">ЛИЧНЫЕ НАСТРОЙКИ</span><h2 id="profile-settings-title">Настройки профиля</h2><p className="settings-modal-subtitle">Публичные элементы увидят другие пользователи. Настройки сохраняются в аккаунте и синхронизируются между устройствами.</p></div><button className="icon-button" onClick={() => setShowProfileSettings(false)} aria-label="Закрыть"><X size={18}/></button></div>
+      {showProfileSettings && <div className="modal-backdrop settings-overlay" onClick={closeProfileSettings}><div className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="profile-settings-title" onClick={e => e.stopPropagation()}>
+        <div className="modal-head"><div><span className="section-overline">ЛИЧНЫЕ НАСТРОЙКИ</span><h2 id="profile-settings-title">Настройки профиля</h2><p className="settings-modal-subtitle">Публичные элементы увидят другие пользователи. Настройки сохраняются в аккаунте и синхронизируются между устройствами.</p></div><button className="icon-button" onClick={closeProfileSettings} aria-label="Закрыть"><X size={18}/></button></div>
         <div className="form-field"><label>Описание профиля</label><textarea rows={3} maxLength={1000} value={profileDescriptionDraft} onChange={e => setProfileDescriptionDraft(e.target.value)} placeholder="Расскажите о себе, интересах или условиях сделки." /></div>
         <div className="telegram-identity-note">{telegramUser?.photo_url?<img src={telegramUser.photo_url} alt="Фото профиля Telegram"/>:<span className="avatar avatar-purple">{(telegramUser?.first_name||"У").slice(0,1)}</span>}<div><b>Фото из Telegram</b><p>Имя и аватар берутся из Telegram и обновляются автоматически. Загружать фото в личном кабинете не нужно.</p></div></div>
+        <div className="form-field"><label>Фон приложения</label><p className="settings-modal-subtitle">Виден только вам во всех меню, кроме магазинов и чужих профилей.</p>{localPlatformBackgroundDraft && <img src={localPlatformBackgroundDraft} alt="Фон приложения" style={{width:"100%",height:120,objectFit:"cover",borderRadius:16,marginBottom:10}}/>}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Фон приложения" disabled={profileImageUploading||profileSaving} onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";void uploadProfileImage(file,"personal-background",url=>setLocalPlatformBackgroundDraft(url));}}/>{localPlatformBackgroundDraft && <button type="button" className="secondary-button" disabled={profileImageUploading||profileSaving} onClick={()=>setLocalPlatformBackgroundDraft("")}>Убрать изображение</button>}</div>
+<div className="form-field"><label>Обложка профиля</label><p className="settings-modal-subtitle">Верхняя обложка вашего личного кабинета. Видна всем посетителям.</p>{profileSettingsDraft.coverUrl && <img src={profileSettingsDraft.coverUrl} alt="Обложка профиля" style={{width:"100%",height:120,objectFit:"cover",borderRadius:16,marginBottom:10}}/>}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Обложка профиля" disabled={profileImageUploading||profileSaving} onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";void uploadProfileImage(file,"profile-cover",url=>setProfileSettingsDraft(v=>({...v,coverUrl:url})));}}/>{profileSettingsDraft.coverUrl && <button type="button" className="secondary-button" disabled={profileImageUploading||profileSaving} onClick={()=>setProfileSettingsDraft(v=>({...v,coverUrl:""}))}>Убрать изображение</button>}</div>
+<div className="form-field"><label>Фон личного кабинета</label><p className="settings-modal-subtitle">Этот фон увидите вы и посетители вашего профиля. Если не выбран, используется фон приложения.</p>{profileSettingsDraft.backgroundUrl && <img src={profileSettingsDraft.backgroundUrl} alt="Фон личного кабинета" style={{width:"100%",height:120,objectFit:"cover",borderRadius:16,marginBottom:10}}/>}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Фон личного кабинета" disabled={profileImageUploading||profileSaving} onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";void uploadProfileImage(file,"profile-background",url=>setProfileSettingsDraft(v=>({...v,backgroundUrl:url})));}}/>{profileSettingsDraft.backgroundUrl && <button type="button" className="secondary-button" disabled={profileImageUploading||profileSaving} onClick={()=>setProfileSettingsDraft(v=>({...v,backgroundUrl:""}))}>Убрать изображение</button>}</div>
+{profileImageUploading && <p role="status">Загружаем изображение… Дождитесь завершения перед сохранением.</p>}
         <div className="form-field"><label>Цвет текста публичного профиля</label><div className="filter-choice-row"><button type="button" className={`filter-choice ${profileSettingsDraft.textColor === "#ffffff" ? "selected" : ""}`} onClick={() => setProfileSettingsDraft(v => ({ ...v, textColor: "#ffffff" }))}>Белый</button><button type="button" className={`filter-choice ${profileSettingsDraft.textColor === "#000000" ? "selected" : ""}`} onClick={() => setProfileSettingsDraft(v => ({ ...v, textColor: "#000000" }))}>Чёрный</button></div></div>
         <div className="form-field"><label>Цвет темы объявлений и блоков профиля</label><div className="theme-choice-grid">{[{v:"banner-purple",t:"Фиолетовый",c:"theme-swatch-purple"},{v:"banner-blue",t:"Синий",c:"theme-swatch-blue"},{v:"banner-pink",t:"Розовый",c:"theme-swatch-pink"},{v:"banner-crimson",t:"Глубокий красный",c:"theme-swatch-crimson"},{v:"banner-black",t:"Чёрно-белый",c:"theme-swatch-black"},...(isOwnerAccount?[{v:"banner-gray",t:"Серый · владелец",c:"theme-swatch-gray"}]:[])].map(opt => <button type="button" key={opt.v} className={`theme-choice ${opt.c} ${profileSettingsDraft.themeKey === opt.v ? "selected" : ""}`} onClick={() => setProfileSettingsDraft(v => ({ ...v, themeKey: opt.v,  }))}><span/>{opt.t}</button>)}</div></div>
-        <div className="modal-actions"><button className="secondary-button" onClick={() => setShowProfileSettings(false)}>Отмена</button><button className="primary-button" onClick={saveProfileSettings}><CheckCircle2 size={16}/> Сохранить настройки</button></div>
+        <div className="modal-actions"><button className="secondary-button" onClick={closeProfileSettings}>Отмена</button><button className="primary-button" onClick={saveProfileSettings} disabled={profileImageUploading||profileSaving}><CheckCircle2 size={16}/> {profileSaving?"Сохраняем…":profileImageUploading?"Загрузка изображения…":"Сохранить настройки"}</button></div>
       </div></div>}
 
       {reportTarget && <div className="modal-backdrop settings-overlay" onClick={() => setReportTarget(null)}><div className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="listing-report-title" onClick={e => e.stopPropagation()}>

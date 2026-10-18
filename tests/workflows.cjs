@@ -238,3 +238,16 @@ test('Telegram avatar removal is reflected; API outages preserve last valid avat
  const removed=load('lib/telegram-identity.ts',{fetch:async url=>new Response(JSON.stringify({ok:true,result:url.endsWith('/getChat')?{id:12345,first_name:'Name'}:{total_count:0,photos:[]}}))});assert.equal((await removed.refreshTelegramIdentity({id:12345,photo_url:'https://old/avatar.jpg'})).photo_url,undefined);
  const unavailable=load('lib/telegram-identity.ts',{fetch:async()=>{throw Error('Offline')}});assert.equal((await unavailable.refreshTelegramIdentity({id:12345,photo_url:'https://valid/avatar.jpg'})).photo_url,'https://valid/avatar.jpg');
 });
+
+test('profile images save independently and support removal',async()=>{
+ let patch;const api=load('app/api/marketplace/profile/route.ts',{db:async(url,init)=>{patch=JSON.parse(init.body);return [patch];}});
+ const result=await api.POST(post({initData:'signed',personalBackgroundUrl:'https://example.com/app.jpg',backgroundUrl:'https://example.com/profile.jpg',coverUrl:'https://example.com/cover.jpg'}));
+ assert.equal(result.status,200);assert.equal(patch.profile_personal_background_url,'https://example.com/app.jpg');assert.equal(patch.profile_background_url,'https://example.com/profile.jpg');assert.equal(patch.profile_cover_url,'https://example.com/cover.jpg');
+ await api.POST(post({initData:'signed',personalBackgroundUrl:'https://example.com/app.jpg',backgroundUrl:'',coverUrl:'https://example.com/cover.jpg'}));assert.equal(patch.profile_background_url,null);assert.equal(patch.profile_personal_background_url,'https://example.com/app.jpg');assert.equal(patch.profile_cover_url,'https://example.com/cover.jpg');
+});
+test('public profile prefers its own background and falls back to application background',async()=>{
+ for(const background of ['https://example.com/profile.jpg',null]){
+ const api=load('app/api/marketplace/profile/route.ts',{db:async(url)=>url.startsWith('marketplace_users?')?[{telegram_id:12345,profile_personal_background_url:'https://example.com/app.jpg',profile_background_url:background,profile_cover_url:'https://example.com/cover.jpg'}]:[]});
+ const result=await api.GET(get('target=12345'));assert.equal(result.status,200);const body=await result.json();assert.equal(body.profile.backgroundUrl,background||'https://example.com/app.jpg');assert.equal(body.profile.coverUrl,'https://example.com/cover.jpg');
+ }
+});

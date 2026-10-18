@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
     const rating=id===998579758?5:Number(summary?.rating||0);
     return NextResponse.json({ profile: {
       telegramId: id, username: profile.username || "", firstName: profile.first_name || "", lastName:profile.last_name||"",verified:id===998579758||!!profile.verified,isOwner:id===998579758,updatedAt:profile.profile_updated_at, photoUrl: profile.photo_url || "",
-      description: profile.profile_description || "", coverUrl: profile.profile_cover_url || "", backgroundUrl: profile.profile_personal_background_url || profile.profile_background_url || "",
+      description: profile.profile_description || "", coverUrl: profile.profile_cover_url || "", backgroundUrl: profile.profile_background_url || profile.profile_personal_background_url || "",
       textColor: profile.profile_text_color || "#ffffff", themeKey: profile.profile_theme_key || "banner-purple",
       subscriberCount, views: viewCount, rating, reviewCount:Number(summary?.count||0), canReview:id !== 998579758,
     } }, { headers: { "Cache-Control": "no-store" } });
