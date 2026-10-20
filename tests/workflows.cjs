@@ -8,11 +8,11 @@ const base = path.resolve(__dirname,'..');
 const links = { APP_URL:'https://market-ptz.vercel.app',BOT_USERNAME:'baraxolka_ptzbot',GROUP_URL:'https://t.me/marketplace_Support_info',miniAppWebUrl:(kind='page',id='home')=>`https://market-ptz.vercel.app/?${kind}=${id}`,telegramMiniAppLink:(kind='page',id='home')=>`https://t.me/baraxolka_ptzbot?startapp=${kind}_${id}`,telegramNotificationLink:value=>value };
 const guideModule={exports:{}};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(base,'lib/bot-guides.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{module:guideModule,exports:guideModule.exports});
-function load(file,{role='Владелец',userId=998579758,db=async()=>[],fetch=async()=>new Response(JSON.stringify({ok:true,result:{}})),send=async()=>true,session}={}){
+function load(file,{role='Владелец',userId=998579758,db=async()=>[],fetch=async()=>new Response(JSON.stringify({ok:true,result:{}})),send=async()=>true,session,cleanup=async()=>({processed:0,deleted:0})}={}){
  const code=ts.transpileModule(fs.readFileSync(path.join(base,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  const module={exports:{}};
  const auth={invalidateVerifiedSession:()=>{},getVerifiedSession:async()=>session||{user:{id:userId,username:'test_moderator',first_name:'Test'},role,isOwner:userId===998579758,shop:null},supabaseRequest:db,supabaseConfig:()=>({url:"https://fixture.supabase.co",key:"fixture"}),sendTelegramMessage:send,sendTelegramPost:async()=>true};
- vm.runInNewContext(code,{exports:module.exports,module,require:name=>name==='next/server'?{NextResponse:{json:(data,init={})=>new Response(JSON.stringify(data),{status:init.status||200,headers:init.headers})}}:name.includes('telegram-links')?links:name.includes('bot-guides')?guideModule.exports:name.includes('telegram-identity')?{refreshTelegramIdentity:async user=>user}:name.includes('bot-publishing')?{handleBotPublishing:async()=>false}:auth,URL,URLSearchParams,Response,Buffer,AbortSignal,fetch,console,process:{env:{TELEGRAM_BOT_TOKEN:'test-fixture',TELEGRAM_WEBHOOK_SECRET:'test-secret'}}});
+ vm.runInNewContext(code,{exports:module.exports,module,require:name=>name==='next/server'?{NextResponse:{json:(data,init={})=>new Response(JSON.stringify(data),{status:init.status||200,headers:init.headers})}}:name.includes('listing-photo-cleanup')?{cleanupDeletedListingPhotos:cleanup}:name.includes('telegram-links')?links:name.includes('bot-guides')?guideModule.exports:name.includes('telegram-identity')?{refreshTelegramIdentity:async user=>user}:name.includes('bot-publishing')?{handleBotPublishing:async()=>false}:auth,URL,URLSearchParams,Response,Buffer,AbortSignal,fetch,console,process:{env:{TELEGRAM_BOT_TOKEN:'test-fixture',TELEGRAM_WEBHOOK_SECRET:'test-secret'}}});
  return module.exports;
 }
 const post=(body)=>({json:async()=>body,headers:{get:()=> 'test-secret'}});
@@ -250,4 +250,36 @@ test('public profile prefers its own background and falls back to application ba
  const api=load('app/api/marketplace/profile/route.ts',{db:async(url)=>url.startsWith('marketplace_users?')?[{telegram_id:12345,profile_personal_background_url:'https://example.com/app.jpg',profile_background_url:background,profile_cover_url:'https://example.com/cover.jpg'}]:[]});
  const result=await api.GET(get('target=12345'));assert.equal(result.status,200);const body=await result.json();assert.equal(body.profile.backgroundUrl,background||'https://example.com/app.jpg');assert.equal(body.profile.coverUrl,'https://example.com/cover.jpg');
  }
+});
+
+test('photo cleanup deletes only unreferenced listing files via Storage API',async()=>{
+ const removed=[];let queueRemoved=0;
+ const api=load('lib/listing-photo-cleanup.ts',{db:async(url,init)=>{
+ if(url.startsWith('marketplace_listing_photo_cleanup?select'))return [{id:'one',photo_url:'https://fixture.supabase.co/storage/v1/object/public/marketplace-media/listings/one.jpg'},{id:'two',photo_url:'https://fixture.supabase.co/storage/v1/object/public/marketplace-media/bot-listings/two.jpg'}];
+ if(url.startsWith('marketplace_listings?'))return [];
+ if(init?.method==='DELETE')queueRemoved++;return [];
+ },fetch:async(url,init)=>{removed.push(JSON.parse(init.body).prefixes[0]);assert.equal(init.method,'DELETE');assert.equal(url,'https://fixture.supabase.co/storage/v1/object/marketplace-media');return new Response('[]');}});
+ const result=await api.cleanupDeletedListingPhotos();assert.equal(result.deleted,2);assert.equal(queueRemoved,2);assert.ok(removed.includes('listings/one.jpg'));assert.ok(removed.includes('bot-listings/two.jpg'));
+});
+test('photo cleanup retains shared photos and retries failed deletion',async()=>{
+ for(const shared of [true,false]){let calls=0,ack=0;
+ const api=load('lib/listing-photo-cleanup.ts',{db:async(url,init)=>{
+ if(url.startsWith('marketplace_listing_photo_cleanup?select'))return [{id:'one',photo_url:'https://fixture.supabase.co/storage/v1/object/public/marketplace-media/listings/one.jpg'}];
+ if(url.startsWith('marketplace_listings?'))return shared?[{listing_id:'other'}]:[];
+ if(init?.method==='DELETE')ack++;return [];
+ },fetch:async()=>{calls++;return new Response('{}',{status:503});}});
+ await api.cleanupDeletedListingPhotos();assert.equal(calls,shared?0:1);assert.equal(ack,shared?1:0);
+ }
+});
+test('photo cleanup rejects foreign hosts profile images and unsafe paths',()=>{
+ const api=load('lib/listing-photo-cleanup.ts');const base='https://fixture.supabase.co';
+ for(const value of ['https://evil.example/storage/v1/object/public/marketplace-media/listings/a.jpg',base+'/storage/v1/object/public/marketplace-media/profile-cover/a.jpg',base+'/storage/v1/object/public/marketplace-media/listings/a.jpg?x=1',base+'/storage/v1/object/public/marketplace-media/listings/%2e%2e%2fprofile-cover/a.jpg','not-a-url'])assert.equal(api.listingPhotoPath(value,base),null);
+ assert.equal(api.listingPhotoPath(base+'/storage/v1/object/public/marketplace-media/listings/a.jpg',base),'listings/a.jpg');
+});
+test('authorized listing deletion drains cleanup queue; denied deletion does not',async()=>{
+ let cleaned=0;const db=async(url,init)=>url.startsWith('marketplace_listings?')?[{listing_id:'1234567890000',title:'Fixture',seller_telegram_id:998579758,listing_group:'частное'}]:[];
+ const api=load('app/api/admin/manage/route.ts',{db,cleanup:async()=>{cleaned++;}});
+ assert.equal((await api.POST(post({action:'delete_own_listing',payload:{listingId:'1234567890000'}}))).status,200);assert.equal(cleaned,1);
+ const denied=load('app/api/admin/manage/route.ts',{db,userId:12345,role:'Участник',cleanup:async()=>{cleaned++;}});
+ assert.equal((await denied.POST(post({action:'delete_own_listing',payload:{listingId:'1234567890000'}}))).status,403);assert.equal(cleaned,1);
 });

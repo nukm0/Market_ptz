@@ -1,3 +1,4 @@
+import {cleanupDeletedListingPhotos} from "../../../../lib/listing-photo-cleanup";
 import {miniAppWebUrl} from "../../../../lib/telegram-links";
 import { NextRequest, NextResponse } from "next/server";
 import { getVerifiedSession, sendTelegramMessage, supabaseConfig, supabaseRequest } from "../../../../lib/telegram-auth";
@@ -399,6 +400,8 @@ export async function POST(request: NextRequest) {
     } else {
       return NextResponse.json({ error: "Неизвестное действие." }, { status: 400 });
     }
+
+    if (["delete_own_listing","delete_own_shop_listing","delete_listing","delete_shop"].includes(action)) await cleanupDeletedListingPhotos().catch(()=>console.error("Очистка фото будет повторена по расписанию."));
 
     await supabaseRequest("marketplace_admin_audit", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ actor_telegram_id: actorId, actor_username: session.user.username ?? null, actor_name: [session.user.first_name, session.user.last_name].filter(Boolean).join(" "), action, target: JSON.stringify(payload).slice(0, 2000), created_at: new Date().toISOString() }) });
     return NextResponse.json({ ok: true, result }, { headers: { "Cache-Control": "no-store" } });
